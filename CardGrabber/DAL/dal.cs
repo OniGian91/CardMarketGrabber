@@ -17,29 +17,53 @@ namespace CardGrabber.DAL
         {
         }
 
-       
 
-        public async void WriteData(string userName, int doubleRareItems, int UltraRareItems, int IllustrationRareItems, Guid runId)
+
+        public async Task WriteData(
+            string userName,
+            int doubleRareItems, float doubleRarePrice,
+            int ultraRareItems, float ultraRarePrice,
+            int illustrationRareItems, float illustrationRarePrice,
+            Guid runId)
         {
-            // Query to retrieve data (replace with your own query)
-            string query = @"INSERT INTO  [CardGrabber].[dbo].[Results](
-runId,
-  Username,
-  InsertDate,
-  [DoubleRareItems],
-  [UltraRareItems],
-  [IllustrationRareItems])
-VALUES
- (@runId, @userName,GETDATE(),@doubleRareItems,@UltraRareItems,@IllustrationRareItems)";
+            string query = @"
+        INSERT INTO [CardGrabber].[dbo].[Results] (
+            runId,
+            Username,
+            InsertDate,
+            DoubleRareItems,
+            DoubleRareAvgPrice,
+            UltraRareItems,
+            UltraRareAvgPrice,
+            IllustrationRareItems,
+            IllustrationRareAvgPrice
+        )
+        VALUES (
+            @runId,
+            @userName,
+            GETDATE(),
+            @doubleRareItems,
+            @doubleRarePrice,
+            @ultraRareItems,
+            @ultraRarePrice,
+            @illustrationRareItems,
+            @illustrationRarePrice
+        )";
 
-            // Using the connection and Dapper to execute the query
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
-
-                // Execute the query and return the results as an IEnumerable
-                var result = await connection.ExecuteAsync(query, new { runId = runId.ToString(), userName, doubleRareItems, UltraRareItems, IllustrationRareItems });
-
+                await connection.ExecuteAsync(query, new
+                {
+                    runId = runId.ToString(),
+                    userName,
+                    doubleRareItems,
+                    doubleRarePrice,
+                    ultraRareItems,
+                    ultraRarePrice,
+                    illustrationRareItems,
+                    illustrationRarePrice
+                });
             }
         }
     }

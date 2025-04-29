@@ -29,8 +29,8 @@ namespace CardMarketScraper
                 string listingUrlUltraRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=54&sortBy=price_asc&perSite=20";
 
                 usernames.AddRange(await getUsersFromUrl(listingUrlDoubleRare,"DoubleRare"));
-                usernames.AddRange(await getUsersFromUrl(listingUrlIllustrationRare, "IllustrationRare"));
-                usernames.AddRange(await getUsersFromUrl(listingUrlUltraRare, "UltraRare"));
+                //usernames.AddRange(await getUsersFromUrl(listingUrlIllustrationRare, "IllustrationRare"));
+                //usernames.AddRange(await getUsersFromUrl(listingUrlUltraRare, "UltraRare"));
 
 
                 // Remove duplicates based on the 'Name' property using LINQ
@@ -52,7 +52,7 @@ namespace CardMarketScraper
             using var playwright = await Playwright.CreateAsync();
             var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
             {
-                Headless = false, // Set to false for debugging
+                Headless = true, // Set to false for debugging
                 SlowMo = 100
             });
 
@@ -201,13 +201,14 @@ namespace CardMarketScraper
                 string urlUltraRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Name}/Offers/Singles?maxPrice=1&condition=3&idRarity=54";
                 string urlIllustrationRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Name}/Offers/Singles?maxPrice=0.8&condition=3&idRarity=280";
 
-                int doubleRareCount = await GetTotalCountFromUserPage(page, urlDoubleRare, user.Name);
-                int ultraRareCount = await GetTotalCountFromUserPage(page, urlUltraRare, user.Name);
-                int illustrationRareCount = await GetTotalCountFromUserPage(page, urlIllustrationRare, user.Name);
+                var (doubleRareCount, doubleRareAvgPrice) = await GetTotalCountFromUserPage(page, urlDoubleRare, user.Name);
+                var (ultraRareCount, ultraRareAvgPrice) = await GetTotalCountFromUserPage(page, urlUltraRare, user.Name);
+                var (illustrationRareCount, illustrationRareAvgPrice) = await GetTotalCountFromUserPage(page, urlIllustrationRare, user.Name);
+
 
                 Console.WriteLine($"[RESULT] DoubleRare: {doubleRareCount}, UltraRare: {ultraRareCount}, IllustrationRare: {illustrationRareCount}");
 
-                dataAccess.WriteData(user.Name, doubleRareCount, ultraRareCount, illustrationRareCount, runIdentifier);
+                dataAccess.WriteData(user.Name, doubleRareCount, doubleRareAvgPrice, ultraRareCount, ultraRareAvgPrice, illustrationRareCount, illustrationRareAvgPrice, runIdentifier);
 
                 Console.WriteLine("[INFO] Waiting 10 seconds before next user...\n");
                 await Task.Delay(10000);
@@ -220,7 +221,7 @@ namespace CardMarketScraper
 
 
 
-        static async Task<int> GetTotalCountFromUserPage(IPage page, string url, string userName)
+        static async Task<(int totalCount, float avgPrice)> GetTotalCountFromUserPage(IPage page, string url, string userName)
         {
             try
             {
@@ -234,48 +235,55 @@ namespace CardMarketScraper
                 {
                     Console.WriteLine($"[ERROR] Error processing {userName} - Received HTTP 429. Waiting 1 minute and retry...");
                     await Task.Delay(TimeSpan.FromMinutes(1));
-                    //retry
-                    await GetTotalCountFromUserPage(page, url, userName);
+                    return await GetTotalCountFromUserPage(page, url, userName); // RECURSIVE RETRY
                 }
 
                 var noResultsLocator = page.Locator("p.noResults");
                 if (await noResultsLocator.IsVisibleAsync())
                 {
-                    //Console.WriteLine($"No results found for {userName} on URL: {url}");
-                    return 0;
+                    return (0, 0f);
                 }
 
-                try
-                {
-                    await page.Locator("span.total-count").Nth(0).WaitForAsync(new LocatorWaitForOptions
-                    {
-                        State = WaitForSelectorState.Visible,
-                        Timeout = 5000
-                    });
+                // Find all article rows
+                var articleRows = await page.Locator("div[id^='articleRow']").AllAsync();
+                int totalCount = 0;
+                float totalPriceSum = 0;
 
-                    string totalCountText = await page.Locator("span.total-count").Nth(0).InnerTextAsync();
-                    if (int.TryParse(totalCountText, out int totalCount))
-                    {
-                        return totalCount;
-                    }
-                    else
-                    {
-                        //Console.WriteLine($"Failed to parse total count for {userName}: {totalCountText}");
-                        return 0;
-                    }
-                }
-                catch (Exception ex)
+                foreach (var row in articleRows)
                 {
-                    Console.WriteLine($"[ERROR] Error getting count for {userName} on URL: {url} exception: {ex.Message}");
-                    return 0;
+                    try
+                    {
+                        var priceSpan = row.Locator("span.color-primary.fw-bold");
+                        string priceText = await priceSpan.InnerTextAsync();
+                        priceText = priceText?.Trim().Replace("€", "").Replace(",", ".");
+
+                        float price = float.TryParse(priceText, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float p) ? p : 0;
+
+                        var quantitySpan = row.Locator("span.item-count");
+                        string quantityText = await quantitySpan.InnerTextAsync();
+                        int quantity = int.TryParse(quantityText?.Trim(), out int q) ? q : 1;
+
+                        totalCount += quantity;
+                        totalPriceSum += (price * quantity);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[WARN] Skipping one offer row due to error: {ex.Message}");
+                        continue;
+                    }
                 }
+
+                float avgPrice = totalCount > 0 ? totalPriceSum / totalCount : 0f;
+
+                return (totalCount, avgPrice);
             }
             catch (TimeoutException ex)
             {
                 Console.WriteLine($"[ERROR] Timeout navigating to URL for {userName} exception: {ex.Message}");
-                return 0;
+                return (0, 0f);
             }
         }
+
 
 
     }
