@@ -17,11 +17,12 @@ namespace CardGrabber.DAL
         {
         }
 
-        // Method to query the database
-        public async Task<IEnumerable<Users>> GetDataAsync()
+       
+
+        public async void WriteData(string userName, int doubleRareItems, int UltraRareItems)
         {
             // Query to retrieve data (replace with your own query)
-            string query = "SELECT [userId],[name] FROM [CardGrabber].[dbo].[Users]";
+            string query = "INSERT INTO [CardGrabber].[dbo].[Results] VALUES (@userName,GETDATE(),@doubleRareItems,@UltraRareItems)";
 
             // Using the connection and Dapper to execute the query
             using (var connection = new SqlConnection(_connectionString))
@@ -29,24 +30,7 @@ namespace CardGrabber.DAL
                 await connection.OpenAsync();
 
                 // Execute the query and return the results as an IEnumerable
-                var result = await connection.QueryAsync<Users>(query);
-
-                return result;
-            }
-        }
-
-        public async void WriteData(int userId,int items)
-        {
-            // Query to retrieve data (replace with your own query)
-            string query = "INSERT INTO [CardGrabber].[dbo].[Results] VALUES (@userId,GETDATE(),@items)";
-
-            // Using the connection and Dapper to execute the query
-            using (var connection = new SqlConnection(_connectionString))
-            {
-                await connection.OpenAsync();
-
-                // Execute the query and return the results as an IEnumerable
-                var result = await connection.ExecuteAsync(query, new { userId, items });
+                var result = await connection.ExecuteAsync(query, new { userName, doubleRareItems, UltraRareItems });
 
             }
         }
@@ -55,7 +39,6 @@ namespace CardGrabber.DAL
     // Example data model class to hold the data from the query
     public class Users
     {
-        public int userId { get; set; }
         public string Name { get; set; }
     }
 }

@@ -61,7 +61,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="dev.publish.xml" />
-    <Build Include="Tables\dbo\Users.sql" />
   </ItemGroup>
   <ItemGroup>
     <Build Include="Tables\dbo\Results.sql" />
