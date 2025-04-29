@@ -58,11 +58,19 @@
     <Folder Include="Properties" />
     <Folder Include="Tables" />
     <Folder Include="Tables\dbo" />
+    <Folder Include="Query" />
   </ItemGroup>
   <ItemGroup>
     <None Include="dev.publish.xml" />
   </ItemGroup>
   <ItemGroup>
     <Build Include="Tables\dbo\Results.sql" />
+    <Build Include="Tables\dbo\ResultsDetailed.sql" />
+    <Build Include="Tables\dbo\Users.sql" />
+    <Build Include="Tables\dbo\Users.sql" />
+    <Build Include="Tables\dbo\Users.sql" />
+    <Build Include="Tables\dbo\Users.sql" />
+    <Build Include="Tables\dbo\UserNames.sql" />
+    <None Include="Query\Query.sql" />
   </ItemGroup>
 </Project>
