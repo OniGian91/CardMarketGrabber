@@ -28,13 +28,13 @@ namespace CardGrabber.DAL
             string query = @"
 IF NOT EXISTS (SELECT TOP 1 Username FROM [CardGrabber].[dbo].[UserNames] WHERE Username = @user)
 BEGIN
-INSERT INTO [CardGrabber].[dbo].[UserNames] (username) VALUES @user
+INSERT INTO [CardGrabber].[dbo].[UserNames] (username) VALUES (@user)
 END
 ";
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
-                var result = await connection.ExecuteAsync(query);
+                await connection.ExecuteAsync(query, new {user = user.Name});
 
             }
         }

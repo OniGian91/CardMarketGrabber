@@ -46,14 +46,14 @@ namespace CardMarketScraper
                         }
                         
 
-                        string listingUrlDoubleRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=199&sortBy=price_asc&perSite=20&site=2";
-                        string listingUrlIllustrationRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=280&sortBy=price_asc&perSite=20&site=2";
-                        string listingUrlUltraRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=54&sortBy=price_asc&perSite=20&site=2";
+                        string listingUrlDoubleRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=199&sortBy=price_asc&perSite=20&site=4";
+                        string listingUrlIllustrationRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=280&sortBy=price_asc&perSite=20&site=4";
+                        string listingUrlUltraRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=54&sortBy=price_asc&perSite=20&site=4";
 
                         finalUsers.AddRange(await getUsersFromUrl(listingUrlDoubleRare, "DoubleRare", 0.30m));
                         finalUsers.AddRange(await getUsersFromUrl(listingUrlIllustrationRare, "IllustrationRare", 1.00m));
                         finalUsers.AddRange(await getUsersFromUrl(listingUrlUltraRare, "UltraRare", 0.70m));
-
+                        //finalUsers.AddRange(usersFromDb);
                         finalUsers = finalUsers
                             .GroupBy(u => u.Name)
                             .Select(g => g.First())
@@ -130,8 +130,8 @@ namespace CardMarketScraper
 
                     if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
                     {
-                        Console.WriteLine($"[ERROR] {type} HTTP 429 Too Many Requests for product at index {i}. Waiting 1 minute and retrying...");
-                        await Task.Delay(TimeSpan.FromMinutes(1));
+                        Console.WriteLine($"[ERROR] {type} HTTP 429 Too Many Requests for product at index {i}. Waiting 30 sec and retrying...");
+                        await Task.Delay(TimeSpan.FromSeconds(30));
 
                         response = await page.GotoAsync(productUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
 
