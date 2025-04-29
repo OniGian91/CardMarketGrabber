@@ -1,6 +1,8 @@
 create table dbo.Results(
-  username varchar(max),
-  insertDate datetime,
-  [doubleRareItems] int,
-  [UltraRareItems] int
+runId varchar(max),
+  Username varchar(max),
+  InsertDate datetime,
+  [DoubleRareItems] int,
+  [UltraRareItems] int,
+  [IllustrationRareItems] int
 )

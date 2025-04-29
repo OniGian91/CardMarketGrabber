@@ -19,27 +19,40 @@ namespace CardMarketScraper
             // Run the operation indefinitely
             while (true)
             {
+
                 List<Users> usernames = new List<Users>();
-                usernames = await getUsers();
+                Guid newGuid = Guid.NewGuid();
+                Console.WriteLine($"[START] Starting CardMarketGrabber. runIdentifier {newGuid.ToString()}\n");
+
+                string listingUrlDoubleRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=199&sortBy=price_asc&perSite=20";
+                string listingUrlIllustrationRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=280&sortBy=price_asc&perSite=20";
+                string listingUrlUltraRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=54&sortBy=price_asc&perSite=20";
+
+                usernames.AddRange(await getUsersFromUrl(listingUrlDoubleRare,"DoubleRare"));
+                usernames.AddRange(await getUsersFromUrl(listingUrlIllustrationRare, "IllustrationRare"));
+                usernames.AddRange(await getUsersFromUrl(listingUrlUltraRare, "UltraRare"));
+
+
                 // Remove duplicates based on the 'Name' property using LINQ
                 usernames = usernames
                     .GroupBy(user => user.Name)  // Group by the 'Name' property
                     .Select(group => group.First())  // Select the first user from each group
                     .ToList();  // Convert the result back to a list
-                Console.WriteLine($"Get {usernames.Count()} users...\n");
-                await getItemsNum(usernames);
+                Console.WriteLine($"[INFO] GetUsers() completed, loaded {usernames.Count()} univocal users...\n");
+                Console.WriteLine($"[INFO] Starting to GetItemsInfo...\n");
+                await getItemsNum(usernames, newGuid);
                 // Wait for the next interval (1 minute)
                 Console.WriteLine($"Waiting for {intervalInMinutes} minute(s)...\n");
                 await Task.Delay(intervalInMilliseconds);
             }
         }
 
-        static async Task<List<Users>> getUsers()
+        static async Task<List<Users>> getUsersFromUrl(string listingUrl, string type)
         {
             using var playwright = await Playwright.CreateAsync();
             var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
             {
-                Headless = true, // Set to false for debugging
+                Headless = false, // Set to false for debugging
                 SlowMo = 100
             });
 
@@ -55,7 +68,6 @@ namespace CardMarketScraper
             List<Users> usersList = new List<Users>();
 
             // 1. Navigate to main product page
-            string listingUrl = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=199&sortBy=price_asc&perSite=20";
             await page.GotoAsync(listingUrl);
 
             // 2. Get all product row divs
@@ -89,43 +101,69 @@ namespace CardMarketScraper
                     if (string.IsNullOrEmpty(productUrl)) continue;
 
                     // Navigate to the product detail page
-                    await page.GotoAsync(productUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
+                    // Navigate to the product detail page with 429 handling
+                    var response = await page.GotoAsync(productUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
+
+                    if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
+                    {
+                        Console.WriteLine($"[ERROR] {type} HTTP 429 Too Many Requests for product at index {i}. Waiting 1 minute and retrying...");
+                        await Task.Delay(TimeSpan.FromMinutes(1));
+
+                        // Retry navigation once after delay
+                        response = await page.GotoAsync(productUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
+
+                        if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
+                        {
+                            Console.WriteLine($"[ERROR] {type} Still receiving 429 after retry. Skipping this product.");
+                            continue;
+                        }
+                    }
+                    // Check if the product page has no sellers
+                    var noResultsLocator = page.Locator("p.noResults");
+                    if (await noResultsLocator.IsVisibleAsync())
+                    {
+                        Console.WriteLine($"[INFO] ({type}) No sellers found for product at index {i}. Skipping...");
+                        await page.GoBackAsync(new PageGoBackOptions { WaitUntil = WaitUntilState.Load });
+                        continue;
+                    }
 
                     // Wait for sellers to load
                     await page.WaitForSelectorAsync("span.seller-name");
 
                     // Collect usernames
                     var sellerSpans = await page.Locator("span.seller-name").AllAsync();
+                    var newUsers = 0;
                     foreach (var span in sellerSpans)
                     {
+
                         var anchorLocator = span.Locator("a").First;
                         if (await anchorLocator.CountAsync() > 0)
                         {
                             var username = await anchorLocator.InnerTextAsync();
-                            Console.WriteLine($"Seller: {username}");
+                            //Console.WriteLine($"Seller: {username}");
 
-                            // Create a new Users object and add it to the list
                             var user = new Users
                             {
                                 Name = username
                             };
                             usersList.Add(user);
+                            newUsers++;
                         }
                     }
+                    Console.WriteLine($"[INFO] ({type}) Added: {newUsers} sellers to the list");
 
                     // Go back to the product listing page
                     await page.GoBackAsync(new PageGoBackOptions { WaitUntil = WaitUntilState.Load });
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error processing product at index {i}: {ex.Message}");
+                    Console.WriteLine($"[ERROR] {type} Error processing product at index {i}: {ex.Message}");
                 }
 
                 // Wait a short time between iterations to avoid rate limiting
-                await Task.Delay(1000);
+                await Task.Delay(500);
             }
 
-            Console.WriteLine("RunScraperOperationV2 complete.");
             await browser.CloseAsync();
 
             // Return the list of Users
@@ -133,9 +171,7 @@ namespace CardMarketScraper
         }
 
 
-
-
-        static async Task getItemsNum(List<Users> users)
+        static async Task getItemsNum(List<Users> users, Guid runIdentifier)
         {
             using var playwright = await Playwright.CreateAsync();
             var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
@@ -159,19 +195,21 @@ namespace CardMarketScraper
             // Iterate over each user
             foreach (var user in users)
             {
-                Console.WriteLine($"Processing user: {user.Name}");
+                Console.WriteLine($"[STARTING] {user.Name}");
 
-                string urlDoubleRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Name}/Offers/Singles?maxPrice=1&condition=3&idRarity=199";
+                string urlDoubleRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Name}/Offers/Singles?maxPrice=0.3&condition=3&idRarity=199";
                 string urlUltraRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Name}/Offers/Singles?maxPrice=1&condition=3&idRarity=54";
+                string urlIllustrationRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Name}/Offers/Singles?maxPrice=0.8&condition=3&idRarity=280";
 
                 int doubleRareCount = await GetTotalCountFromUserPage(page, urlDoubleRare, user.Name);
                 int ultraRareCount = await GetTotalCountFromUserPage(page, urlUltraRare, user.Name);
+                int illustrationRareCount = await GetTotalCountFromUserPage(page, urlIllustrationRare, user.Name);
 
-                Console.WriteLine($"[RESULT] {user.Name} - DoubleRare: {doubleRareCount}, UltraRare: {ultraRareCount}");
+                Console.WriteLine($"[RESULT] DoubleRare: {doubleRareCount}, UltraRare: {ultraRareCount}, IllustrationRare: {illustrationRareCount}");
 
-                dataAccess.WriteData(user.Name, doubleRareCount, ultraRareCount);
+                dataAccess.WriteData(user.Name, doubleRareCount, ultraRareCount, illustrationRareCount, runIdentifier);
 
-                Console.WriteLine("Waiting 10 seconds before next user...\n");
+                Console.WriteLine("[INFO] Waiting 10 seconds before next user...\n");
                 await Task.Delay(10000);
             }
 
@@ -194,15 +232,16 @@ namespace CardMarketScraper
 
                 if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
                 {
-                    Console.WriteLine($"Received HTTP 429 for user {userName}. Waiting 1 minute...");
+                    Console.WriteLine($"[ERROR] Error processing {userName} - Received HTTP 429. Waiting 1 minute and retry...");
                     await Task.Delay(TimeSpan.FromMinutes(1));
-                    return 0;
+                    //retry
+                    await GetTotalCountFromUserPage(page, url, userName);
                 }
 
                 var noResultsLocator = page.Locator("p.noResults");
                 if (await noResultsLocator.IsVisibleAsync())
                 {
-                    Console.WriteLine($"No results found for {userName} on URL: {url}");
+                    //Console.WriteLine($"No results found for {userName} on URL: {url}");
                     return 0;
                 }
 
@@ -221,19 +260,19 @@ namespace CardMarketScraper
                     }
                     else
                     {
-                        Console.WriteLine($"Failed to parse total count for {userName}: {totalCountText}");
+                        //Console.WriteLine($"Failed to parse total count for {userName}: {totalCountText}");
                         return 0;
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    Console.WriteLine($"Error getting count for {userName} on URL: {url}");
+                    Console.WriteLine($"[ERROR] Error getting count for {userName} on URL: {url} exception: {ex.Message}");
                     return 0;
                 }
             }
             catch (TimeoutException ex)
             {
-                Console.WriteLine($"Timeout navigating to URL for {userName}: {ex.Message}");
+                Console.WriteLine($"[ERROR] Timeout navigating to URL for {userName} exception: {ex.Message}");
                 return 0;
             }
         }

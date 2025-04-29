@@ -19,10 +19,18 @@ namespace CardGrabber.DAL
 
        
 
-        public async void WriteData(string userName, int doubleRareItems, int UltraRareItems)
+        public async void WriteData(string userName, int doubleRareItems, int UltraRareItems, int IllustrationRareItems, Guid runId)
         {
             // Query to retrieve data (replace with your own query)
-            string query = "INSERT INTO [CardGrabber].[dbo].[Results] VALUES (@userName,GETDATE(),@doubleRareItems,@UltraRareItems)";
+            string query = @"INSERT INTO  [CardGrabber].[dbo].[Results](
+runId,
+  Username,
+  InsertDate,
+  [DoubleRareItems],
+  [UltraRareItems],
+  [IllustrationRareItems])
+VALUES
+ (@runId, @userName,GETDATE(),@doubleRareItems,@UltraRareItems,@IllustrationRareItems)";
 
             // Using the connection and Dapper to execute the query
             using (var connection = new SqlConnection(_connectionString))
@@ -30,7 +38,7 @@ namespace CardGrabber.DAL
                 await connection.OpenAsync();
 
                 // Execute the query and return the results as an IEnumerable
-                var result = await connection.ExecuteAsync(query, new { userName, doubleRareItems, UltraRareItems });
+                var result = await connection.ExecuteAsync(query, new { runId = runId.ToString(), userName, doubleRareItems, UltraRareItems, IllustrationRareItems });
 
             }
         }
