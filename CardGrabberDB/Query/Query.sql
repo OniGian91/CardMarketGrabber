@@ -1,8 +1,10 @@
-DECLARE @LastRunIdentifier VARCHAR(MAX);
+-- SELECT * FROM CardGrabber.dbo.Runs 
+DECLARE @LastRunIdentifier INT -- = 'be2f93d8-f76b-41d0-840f-c5f2f8deebbe';
 SELECT TOP 1 @LastRunIdentifier = RunId 
-FROM [CardGrabber].[dbo].[ResultsDetailed] 
-ORDER BY insertDate DESC;
-SELECT ConsideredUsers = COUNT(*) FROM [CardGrabber].[dbo].[ResultsDetailed]  WHERE runId = @LastRunIdentifier
+FROM CardGrabber.dbo.Runs 
+ORDER BY [Start] DESC
+--SELECT @LastRunIdentifier
+
 SELECT 
     UserName,
     [Rank] = ROW_NUMBER() OVER (ORDER BY p.MinNonZeroPrice ASC),
@@ -11,10 +13,11 @@ SELECT
     MinNonZeroPrice = round(p.MinNonZeroPrice,2),
     DoubleRareItems,
     UltraRareItems,
+    holoRareItems,
     IllustrationRareItems
 
 FROM 
-    [CardGrabber].[dbo].[ResultsDetailed] r
+    [CardGrabber].[dbo].[SellerItemsInfo] r
 CROSS APPLY 
 (
     SELECT MIN(val) AS MinNonZeroPrice
@@ -35,37 +38,48 @@ WHERE
     AND DoubleRareItems + UltraRareItems + IllustrationRareItems > 40
 ORDER BY p.MinNonZeroPrice ASC;
 
---insert into [CardGrabber].[dbo].[users] 
---select distinct Username From [CardGrabber].[dbo].[ResultsDetailed] 
+SELECT *, TimeTaken = DATEDIFF(MINUTE,[Start],[End]) FROM CardGrabber.dbo.Runs  ORDER BY 1 DESC
+
+select UserBase = COUNT(DISTINCT [UserName]) From [CardGrabber].[dbo].Sellers 
 
 
--- SELECT * FROM [CardGrabber].[dbo].[ResultsDetailed] ORDER BY insertDate DESC
--- DELETE FROM [CardGrabber].[dbo].[ResultsDetailed]
-
-
-DECLARE @LastRunIdentifier VARCHAR(MAX) 
-SELECT TOP 1 @LastRunIdentifier = RunId FROM [CardGrabber].[dbo].[ResultsDetailed] ORDER BY insertDate DESC
-
+;WITH RankedSellers AS (
+    SELECT 
+        [Username],
+        [Type],
+        [Info],
+        [CardMarketRank],
+        [Country],
+        [Singles],
+        [Buy],
+        [Sell],
+        [SellNotSent],
+        [SellNotArrived],
+        [BuyNotPayed],
+        [BuyNotReceived],
+        [InsertDate],
+        ROW_NUMBER() OVER (PARTITION BY Username ORDER BY InsertDate DESC) AS rn,
+        COUNT(*) OVER (PARTITION BY Username) AS [Versions],
+        'https://www.cardmarket.com/it/Pokemon/Users/' + [Username] AS UserProfileLink
+    FROM [CardGrabber].[dbo].[Sellers]
+)
 SELECT 
-    --runId,
-    UserName,
-    ProfileUrl = REPLACE('https://www.cardmarket.com/it/Pokemon/Users/{userName}/Offers/Singles?maxPrice=0.3&condition=3&idRarity=199&sortBy=price_asc', '{userName}', UserName),
-    --InsertDate,
-    Tot = DoubleRareItems + UltraRareItems + IllustrationRareItems,
-    DRItems = DoubleRareItems,
-    DRPrice= ROUND(DoubleRareAvgPrice,2),  
-    URItems = UltraRareItems,
-    URPrice = ROUND(UltraRareAvgPrice,2), 
-    ILItems = IllustrationRareItems,
-    ILPrice = ROUND(IllustrationRareAvgPrice,2),
-    PriceExtimated = 
-          (UltraRareItems  * UltraRareAvgPrice) 
-        + (DoubleRareItems * DoubleRareAvgPrice)
-        + (IllustrationRareItems * IllustrationRareAvgPrice)
-FROM 
-    [CardGrabber].[dbo].[ResultsDetailed]
-WHERE 
-    runId = @LastRunIdentifier
-ORDER BY 
-    Tot DESC
+    [Username],
+    [Type],
+    [StartYear] = [Info],
+    [CardMarketRank],
+    [Country],
+    [Singles],
+    [Buy],
+    [Sell],
+    [SellNotSent],
+    [SellNotArrived],
+    [BuyNotPayed],
+    [BuyNotReceived],
+    LastUpdate = [InsertDate],
+    [Versions],
+    UserProfileLink
+FROM RankedSellers
+WHERE rn = 1
+
 

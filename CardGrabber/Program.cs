@@ -1,5 +1,7 @@
 ﻿using Microsoft.Playwright;
 using CardGrabber.DAL;
+using CardGrabber.Classes;
+using System.Linq;
 
 namespace CardMarketScraper
 {
@@ -7,10 +9,18 @@ namespace CardMarketScraper
     {
         #region Configurations
         public static bool debugMode = false;
-        public static bool useDBUsers = false;
+        public static bool useDBUsers = true;
+        public static bool test1User = false;
+
         public static string scraperUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
         #endregion
-
+        static async Task<Run> StartAndCollectNewRun()
+        {
+            Guid runId = Guid.NewGuid();
+            var dataAccess = new dal();
+            Run run = await dataAccess.CreateNewRun(runId);
+            return run;
+        }
 
         static async Task Main(string[] args)
         {
@@ -19,69 +29,103 @@ namespace CardMarketScraper
 
             while (true)
             {
-                Guid runId = Guid.NewGuid();
-                Console.WriteLine($"[START] Starting CardMarketGrabber. runIdentifier {runId}\n");
+                // STARTING CREATING A NEW RUN
+                Logger.OutputInfo("CardMarketGrabber is starting...");
+                Run run = null;
+                try
+                {
+                    run = await StartAndCollectNewRun();
+                }
+                catch (Exception ex)
+                {
+                    Logger.OutputError($"CardMarketGrabber error on start! Exception: {ex.Message}\n");
+                    return;
+                }
+                Logger.OutputOk($"CardMarketGrabber started at {run.Start}. RunId: {run.RunId} RunIdentifier: {run.RunIdentifier}\n");
 
+                // GET USER ON DB AN SITE ONE
+                Logger.OutputInfo($"Get available sellers from DB");
                 var dataAccess = new dal();
-                IEnumerable<Users> usersFromDb = await dataAccess.GetUsers();
-                List<Users> finalUsers;
-                finalUsers = new List<Users>();
+                IEnumerable<Sellers> dbSellers = await dataAccess.GetSellers();
+                Logger.OutputOk($"Get {dbSellers.Count()} sellers from DB\n");
 
-                if (debugMode)
+                Logger.OutputInfo($"Starting to get sellers from site");
+                List<Sellers> siteSellers;
+                siteSellers = new List<Sellers>();
+                string listingUrlDoubleRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=199&sortBy=price_asc&perSite=20&site=1";
+                string listingUrlIllustrationRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=280&sortBy=price_asc&perSite=20&site=1";
+                string listingUrlUltraRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=54&sortBy=price_asc&perSite=20&site=1";
+                string listingUrlHoloRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=49&perSite=20"; // POPOLARI NON ORDINATE PER PREZZO!
+                siteSellers.AddRange(await getSellersFromUrl(listingUrlDoubleRare, "DoubleRare"));
+                siteSellers.AddRange(await getSellersFromUrl(listingUrlIllustrationRare, "IllustrationRare"));
+                siteSellers.AddRange(await getSellersFromUrl(listingUrlUltraRare, "UltraRare"));
+                siteSellers.AddRange(await getSellersFromUrl(listingUrlHoloRare, "HoloRare"));
+                siteSellers = siteSellers
+                    .GroupBy(u => u.Username)
+                    .Select(g => g.First())
+                    .ToList();
+                Logger.OutputOk($"Get {siteSellers.Count()} sellers from site\n");
+
+
+                var dbUsernames = new HashSet<string>(
+                    dbSellers.Select(s => s.Username),
+                    StringComparer.OrdinalIgnoreCase
+                );
+
+                var newSellers = siteSellers
+                    .Where(s => !dbUsernames.Contains(s.Username))
+                    .ToList();
+
+                var existingSellers = siteSellers
+                    .Where(s => dbUsernames.Contains(s.Username))
+                    .ToList();
+
+                // SELLER INFO COLLECTING
+                using var playwright = await Playwright.CreateAsync();
+                await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
                 {
-                    finalUsers.Add(new Users { Name = "CheckpointGallarate" });
-                }
-                else
+                    Headless = !debugMode,
+                    SlowMo = 100
+                });
+
+                var context = await browser.NewContextAsync(new BrowserNewContextOptions
                 {
+                    ViewportSize = new ViewportSize { Width = 1280, Height = 800 },
+                    UserAgent = scraperUserAgent
+                });
 
-                    if (usersFromDb == null || !usersFromDb.Any() || useDBUsers == false)
-                    {
-                        if (!useDBUsers)
-                        {
-                            Console.WriteLine($"[INFO] There are some users on DB: {usersFromDb.Count()}. Fetching from listing URLs anyway due config...");
-                        }
-                        else
-                        {
-                            Console.WriteLine("[INFO] No users in DB. Fetching from listing URLs...");
-                        }
-                        
-
-                        string listingUrlDoubleRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=199&sortBy=price_asc&perSite=20&site=4";
-                        string listingUrlIllustrationRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=280&sortBy=price_asc&perSite=20&site=4";
-                        string listingUrlUltraRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=54&sortBy=price_asc&perSite=20&site=4";
-
-                        finalUsers.AddRange(await getUsersFromUrl(listingUrlDoubleRare, "DoubleRare", 0.30m));
-                        finalUsers.AddRange(await getUsersFromUrl(listingUrlIllustrationRare, "IllustrationRare", 1.00m));
-                        finalUsers.AddRange(await getUsersFromUrl(listingUrlUltraRare, "UltraRare", 0.70m));
-                        //finalUsers.AddRange(usersFromDb);
-                        finalUsers = finalUsers
-                            .GroupBy(u => u.Name)
-                            .Select(g => g.First())
-                            .ToList();
-
-                        foreach (var user in finalUsers)
-                        {
-                            dataAccess.InsertUser(user);
-                        }
-                    }
+                await context.RouteAsync("**/*", async route =>
+                {
+                    var req = route.Request;
+                    if (req.ResourceType == "stylesheet" || req.ResourceType == "image" || req.ResourceType == "font")
+                        await route.AbortAsync();
                     else
-                    {
-                        Console.WriteLine("[INFO] Loaded users from DB.");
-                        finalUsers = usersFromDb.ToList();
-                    }
+                        await route.ContinueAsync();
+                });
+
+                foreach (Sellers seller in newSellers)
+                {
+                    await GetSellerInfoAsync(seller.Username, context);
                 }
 
-                Console.WriteLine($"[INFO] Loaded {finalUsers.Count} unique users.\n");
-                Console.WriteLine("[INFO] Starting to GetItemsInfo...\n");
+                foreach (Sellers seller in existingSellers)
+                {
+                    await GetSellerInfoAsync(seller.Username, context);
+                }
 
-                await getItemsNum(finalUsers, runId);
 
-                Console.WriteLine($"Waiting for {intervalInMinutes} minute(s)...\n");
+                // ITEM INFO COLLECTING
+                await getItemsNum(siteSellers, run);
+
+                await dataAccess.CompleteRun(run);
+                Logger.OutputOk("RunCompleted");
+                Logger.OutputInfo($"Waiting for {intervalInMinutes} minute(s)...\n");
+
                 await Task.Delay(intervalInMilliseconds);
             }
         }
 
-        static async Task<List<Users>> getUsersFromUrl(string listingUrl, string type, decimal priceThreshold)
+        static async Task<List<Sellers>> getSellersFromUrl(string listingUrl, string type)
         {
             using var playwright = await Playwright.CreateAsync();
             var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
@@ -98,7 +142,7 @@ namespace CardMarketScraper
 
             var page = await context.NewPageAsync();
 
-            List<Users> usersList = new List<Users>();
+            List<Sellers> usersList = new List<Sellers>();
 
             await page.GotoAsync(listingUrl);
 
@@ -120,7 +164,7 @@ namespace CardMarketScraper
                         if (!string.IsNullOrEmpty(href) && href.Contains("/Singles/"))
                         {
                             productUrl = $"https://www.cardmarket.com{href}?sellerCountry=17&minCondition=3";
-                            break; 
+                            break;
                         }
                     }
 
@@ -130,30 +174,26 @@ namespace CardMarketScraper
 
                     if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
                     {
-                        Console.WriteLine($"[ERROR] {type} HTTP 429 Too Many Requests for product at index {i}. Waiting 30 sec and retrying...");
+                        Logger.OutputWarning($"({type}) HTTP 429 Too Many Requests for product at index {i}. Waiting 30 sec and retrying...");
                         await Task.Delay(TimeSpan.FromSeconds(30));
 
                         response = await page.GotoAsync(productUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
 
                         if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
                         {
-                            Console.WriteLine($"[ERROR] {type} Still receiving 429 after retry. Skipping this product.");
+                            Logger.OutputError($"({type}) Still receiving 429 after retry. Skipping this product.");
                             continue;
                         }
                     }
                     var noResultsLocator = page.Locator("p.noResults");
                     if (await noResultsLocator.IsVisibleAsync())
                     {
-                        Console.WriteLine($"[INFO] ({type}) No sellers found for product at index {i}. Skipping...");
+                        Logger.OutputInfo($"({type}) No sellers found for product at index {i}. Skipping...");
                         await page.GoBackAsync(new PageGoBackOptions { WaitUntil = WaitUntilState.Load });
                         continue;
                     }
 
-
-                    // Wait for all article rows to be loaded
                     await page.WaitForSelectorAsync("div.article-row");
-
-                    // Select all article rows
                     var articleRows = await page.Locator("div.article-row").AllAsync();
 
                     var newUsers = 0;
@@ -165,34 +205,24 @@ namespace CardMarketScraper
 
                         if (priceCount > 0)
                         {
-                            var priceText = await priceLocator.First.InnerTextAsync();
-
-                            // Clean and parse price: replace comma with dot, remove euro sign
-                            var cleanedPrice = priceText.Replace("€", "").Trim().Replace(",", ".");
-                            if (decimal.TryParse(cleanedPrice, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal price))
+                            var sellerAnchor = row.Locator("span.seller-name a");
+                            if (await sellerAnchor.CountAsync() > 0)
                             {
-                                if (price <= priceThreshold)
-                                {
-                                    var sellerAnchor = row.Locator("span.seller-name a");
-                                    if (await sellerAnchor.CountAsync() > 0)
-                                    {
-                                        var username = await sellerAnchor.First.InnerTextAsync();
-                                        var user = new Users { Name = username };
-                                        usersList.Add(user);
-                                        newUsers++;
-                                    }
-                                }
+                                var username = await sellerAnchor.First.InnerTextAsync();
+                                var seller = new Sellers { Username = username };
+                                usersList.Add(seller);
+                                newUsers++;
                             }
                         }
                     }
 
-                    Console.WriteLine($"[INFO] ({type}) Added: {newUsers} sellers to the list");
+                    Logger.OutputOk($"({type}) Added: {newUsers} sellers to the list. Waiting 5 sec before next user...");
 
                     await page.GoBackAsync(new PageGoBackOptions { WaitUntil = WaitUntilState.Load });
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[ERROR] {type} Error processing product at index {i}: {ex.Message}");
+                    Logger.OutputError($"({type}) Error processing product at index {i}: {ex.Message}");
                 }
 
                 await Task.Delay(500);
@@ -204,7 +234,7 @@ namespace CardMarketScraper
         }
 
 
-        static async Task getItemsNum(List<Users> users, Guid runIdentifier)
+        static async Task getItemsNum(List<Sellers> users, Run run)
         {
             using var playwright = await Playwright.CreateAsync();
             var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
@@ -226,29 +256,154 @@ namespace CardMarketScraper
             for (int i = 0; i < users.Count; i++)
             {
                 var user = users[i];
-                Console.WriteLine($"[STARTING] {user.Name} ({i + 1}/{users.Count})");
-
+                Logger.OutputInfo($"{user.Username} ({i + 1}/{users.Count})");
                 // idLanguage=5 per filtrare solo roba in italiano
-                string urlDoubleRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Name}/Offers/Singles?maxPrice=0.3&condition=3&idRarity=199&sortBy=price_asc";
-                string urlUltraRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Name}/Offers/Singles?maxPrice=1&condition=3&idRarity=54&sortBy=price_asc";
-                string urlIllustrationRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Name}/Offers/Singles?maxPrice=0.8&condition=3&idRarity=280&sortBy=price_asc";
-                var (doubleRareCount, doubleRareAvgPrice) = await GetTotalCountFromUserPage(page, urlDoubleRare, user.Name);
-                var (ultraRareCount, ultraRareAvgPrice) = await GetTotalCountFromUserPage(page, urlUltraRare, user.Name);
-                var (illustrationRareCount, illustrationRareAvgPrice) = await GetTotalCountFromUserPage(page, urlIllustrationRare, user.Name);
+                string urlDoubleRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Username}/Offers/Singles?maxPrice=0.3&condition=3&idRarity=199&sortBy=price_asc";
+                string urlUltraRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Username}/Offers/Singles?maxPrice=1&condition=3&idRarity=54&sortBy=price_asc";
+                string urlIllustrationRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Username}/Offers/Singles?maxPrice=0.8&condition=3&idRarity=280&sortBy=price_asc";
+                string urlHoloRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Username}/Offers/Singles?maxPrice=0.05&condition=3&idRarity=49&sortBy=price_asc";
 
-                dataAccess.WriteData(user.Name, doubleRareCount, doubleRareAvgPrice, ultraRareCount, ultraRareAvgPrice, illustrationRareCount, illustrationRareAvgPrice, runIdentifier);
+                var (doubleRareCount, doubleRareAvgPrice) = await GetTotalCountFromUserPage(page, urlDoubleRare, user.Username);
+                var (ultraRareCount, ultraRareAvgPrice) = await GetTotalCountFromUserPage(page, urlUltraRare, user.Username);
+                var (illustrationRareCount, illustrationRareAvgPrice) = await GetTotalCountFromUserPage(page, urlIllustrationRare, user.Username);
+                var (holoRareCount, holoRareAvgPrice) = await GetTotalCountFromUserPage(page, urlHoloRare, user.Username);
 
-                Console.WriteLine($"[RESULT] DoubleRare: {doubleRareCount}, UltraRare: {ultraRareCount}, IllustrationRare: {illustrationRareCount}");
-                Console.WriteLine($"[INFO] Waiting 10 seconds before next user...");
+                dataAccess.StoreSellerItemInfo(user.Username , doubleRareCount, doubleRareAvgPrice, ultraRareCount, ultraRareAvgPrice, illustrationRareCount, illustrationRareAvgPrice, holoRareCount, holoRareAvgPrice, run);
 
-                await Task.Delay(10000);
+                Logger.OutputOk($"DoubleRare: {doubleRareCount}, UltraRare: {ultraRareCount}, IllustrationRare: {illustrationRareCount}, HoloRare: {holoRareCount}");
+                Logger.OutputInfo($"Waiting 5 seconds before next user...\n");
+
+                await Task.Delay(5000);
             }
 
-
-            Console.WriteLine("Scraper operation complete.");
+            Logger.OutputInfo("Scraper operation complete.")
 
             await browser.CloseAsync();
         }
+
+        static async Task GetSellerInfoAsync(string userName, IBrowserContext context)
+        {
+            Logger.OutputInfo($"Collecting info for {userName}");
+
+            var page = await context.NewPageAsync();
+            try
+            {
+                page.SetDefaultTimeout(5000);
+                string userDetailsPage = $"https://www.cardmarket.com/it/Pokemon/Users/{userName}";
+                var response = await page.GotoAsync(userDetailsPage, new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+
+                if (response == null)
+                {
+                    Logger.OutputError($"No response received for {userName}.\n");
+
+                    return;
+                }
+
+                if (response.Status == 429)
+                {
+                    Logger.OutputWarning($"HTTP 429 received. Waiting 60 seconds before retrying...");
+                    await page.CloseAsync();
+                    await Task.Delay(60000); // Wait 1 minute
+                    await GetSellerInfoAsync(userName, context); // Retry
+                    return;
+                }
+
+                if (!response.Ok)
+                {
+                    Logger.OutputError($"HTTP {response.Status} for {userName}: {response.StatusText}\n");
+
+                    return;
+                }
+
+                // Helper to safely extract text
+                async Task<string> SafeGetInnerTextAsync(string selector)
+                {
+                    var element = await page.QuerySelectorAsync(selector);
+                    return element != null ? await element.InnerTextAsync() : "";
+                }
+
+                var seller = new Sellers
+                {
+                    Username = await SafeGetInnerTextAsync("#PublicProfileHeadline"),
+                    Type = await SafeGetInnerTextAsync("div.d-flex.align-items-center span:nth-of-type(2)"),
+                    Info = await SafeGetInnerTextAsync("div.d-flex.align-items-center span.personalInfo-light"),
+                    CardMarketRank = await SafeGetInnerTextAsync("div.col.col-md-auto span.personalInfo")
+                };
+
+                // Country selectors
+                var countryComplexSelector = "div.col-12.col-md-6 div.d-flex.align-items-center.justify-content-start.flex-wrap.personalInfo p.mb-1.w-100";
+                var countrySimpleSelector = "div#PersonalInfoRow p.mb-1.w-100";
+
+                var countryElements = await page.QuerySelectorAllAsync(countryComplexSelector);
+                if (countryElements.Count > 0)
+                {
+                    var countryParts = new List<string>();
+                    foreach (var elem in countryElements)
+                        countryParts.Add(await elem.InnerTextAsync());
+                    seller.Country = string.Join("|", countryParts);
+                }
+                else
+                {
+                    var simpleCountryElements = await page.QuerySelectorAllAsync(countrySimpleSelector);
+                    seller.Country = simpleCountryElements.Count > 0
+                        ? await simpleCountryElements.First().InnerTextAsync()
+                        : "Unknown";
+                }
+
+                // Stats
+                var stats = await page.QuerySelectorAllAsync("#collapsibleAdditionalInfo dl dt");
+                var statsDict = new Dictionary<string, int>();
+                foreach (var dt in stats)
+                {
+                    string key = (await dt.InnerTextAsync()).Trim();
+                    var dd = await dt.EvaluateHandleAsync("el => el.nextElementSibling");
+                    if (dd != null)
+                    {
+                        string valText = (await dd.AsElement().InnerTextAsync()).Trim();
+                        if (int.TryParse(valText, out int val))
+                            statsDict[key] = val;
+                    }
+                }
+
+                seller.Buy = statsDict.GetValueOrDefault("Acquisti");
+                seller.Sell = statsDict.GetValueOrDefault("Vendite");
+                seller.BuyNotPayed = statsDict.GetValueOrDefault("Ordini non pagati");
+                seller.SellNotSent = statsDict.GetValueOrDefault("Non spediti");
+                seller.BuyNotReceived = statsDict.GetValueOrDefault("Acquisti non ricevuti");
+                seller.SellNotArrived = statsDict.GetValueOrDefault("Spedizioni non arrivate");
+
+                // Singles
+                var singlesSelector = "a[href*='/Offers/Singles'] span.bracketed";
+                var singlesElement = await page.QuerySelectorAsync(singlesSelector);
+                if (singlesElement != null)
+                {
+                    var singlesText = await singlesElement.InnerTextAsync();
+                    if (int.TryParse(singlesText, out int singlesCount))
+                        seller.Singles = singlesCount;
+                }
+                else
+                {
+                    seller.Singles = 0;
+                }
+
+                var dataAccess = new dal();
+                await dataAccess.InsertSellerAsync(seller);
+
+                Logger.OutputOk($"Collected info for {userName} Waiting 5 seconds before next user...\n");
+
+                await Task.Delay(500);
+            }
+            catch (Exception ex)
+            {
+                Logger.OutputError($"Failed to collect info for {userName}: {ex.Message}\n");
+
+            }
+            finally
+            {
+                await page.CloseAsync();
+            }
+        }
+
 
 
         static async Task<(int totalCount, float avgPrice)> GetTotalCountFromUserPage(IPage page, string url, string userName)
@@ -263,7 +418,7 @@ namespace CardMarketScraper
 
                 if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
                 {
-                    Console.WriteLine($"[ERROR] Error processing {userName} - Received HTTP 429. Waiting 1 minute and retry...");
+                    Logger.OutputError($"Error processing {{userName}} - Received HTTP 429. Waiting 1 minute and retry...\n");
                     await Task.Delay(TimeSpan.FromMinutes(1));
                     return await GetTotalCountFromUserPage(page, url, userName);
                 }
@@ -301,7 +456,7 @@ namespace CardMarketScraper
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[WARN] Skipping one offer row due to error: {ex.Message}");
+                        Logger.OutputWarning($"Skipping one offer row due to error: {ex.Message}");
                     }
                 }
 
@@ -321,7 +476,8 @@ namespace CardMarketScraper
             }
             catch (TimeoutException ex)
             {
-                Console.WriteLine($"[ERROR] Timeout navigating to URL for {userName} exception: {ex.Message}");
+                Logger.OutputError($"Timeout navigating to URL for {userName} exception: {ex.Message}");
+
                 return (0, 0f);
             }
         }

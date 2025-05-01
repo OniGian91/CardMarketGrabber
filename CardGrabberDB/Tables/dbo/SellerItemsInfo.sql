@@ -1,5 +1,5 @@
-CREATE TABLE dbo.ResultsDetailed (
-    runId VARCHAR(MAX),
+CREATE TABLE dbo.SellerItemsInfo (
+    [RunId] INT,
     Username VARCHAR(MAX),
     InsertDate DATETIME,
     DoubleRareItems INT,
@@ -7,5 +7,7 @@ CREATE TABLE dbo.ResultsDetailed (
     UltraRareItems INT,
     UltraRareAvgPrice FLOAT,
     IllustrationRareItems INT,
-    IllustrationRareAvgPrice FLOAT
+    IllustrationRareAvgPrice FLOAT,
+    holoRareItems INT,
+    holoRareAvgPrice FLOAT
 );
