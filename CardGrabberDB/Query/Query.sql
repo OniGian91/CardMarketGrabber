@@ -79,5 +79,5 @@ WHERE
         r.UltraRareAvgPrice > 0 OR 
         r.IllustrationRareAvgPrice > 0
     )
-    --AND DoubleRareItems + UltraRareItems + IllustrationRareItems > 40
+    AND DoubleRareItems + UltraRareItems + IllustrationRareItems > 40
 ORDER BY p.MinNonZeroPrice ASC;

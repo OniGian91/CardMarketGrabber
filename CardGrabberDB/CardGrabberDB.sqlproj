@@ -72,5 +72,6 @@
     <None Include="Query\Query.sql" />
     <Build Include="Tables\dbo\Sellers.sql" />
     <Build Include="Tables\dbo\Runs.sql" />
+    <Build Include="Tables\dbo\Logs.sql" />
   </ItemGroup>
 </Project>

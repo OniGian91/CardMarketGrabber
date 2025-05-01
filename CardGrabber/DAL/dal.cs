@@ -70,33 +70,33 @@ WHERE
             Run run)
         {
             string query = @"
-        INSERT INTO [CardGrabber].[dbo].[SellerItemsInfo] (
-            runId,
-            Username,
-            InsertDate,
-            DoubleRareItems,
-            DoubleRareAvgPrice,
-            UltraRareItems,
-            UltraRareAvgPrice,
-            IllustrationRareItems,
-            IllustrationRareAvgPrice,
-            holoRareItems,
-            holoRareAvgPrice
-        )
-        VALUES (
-            @runId,
-            @userName,
-            GETDATE(),
-            @doubleRareItems,
-            @doubleRarePrice,
-            @ultraRareItems,
-            @ultraRarePrice,
-            @illustrationRareItems,
-            @illustrationRarePrice,
-            @holoRareItems,
-            @holoRareAvgPrice
-        )";
-
+ INSERT INTO [CardGrabber].[dbo].[SellerItemsInfo] (
+     runId,
+     Username,
+     InsertDate,
+     DoubleRareItems,
+     DoubleRareAvgPrice,
+     UltraRareItems,
+     UltraRareAvgPrice,
+     IllustrationRareItems,
+     IllustrationRareAvgPrice,
+     holoRareItems,
+     holoRareAvgPrice
+ )
+ VALUES (
+     @runId,
+     @userName,
+     GETDATE(),
+     @doubleRareItems,
+     @doubleRarePrice,
+     @ultraRareItems,
+     @ultraRarePrice,
+     @illustrationRareItems,
+     @illustrationRarePrice,
+     @holoRareItems,
+     @holoRareAvgPrice
+ )";
+ 
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
@@ -204,10 +204,6 @@ VALUES (
                    oldSeller.BuyNotPayed == newSeller.BuyNotPayed &&
                    oldSeller.BuyNotReceived == newSeller.BuyNotReceived;
         }
-
-
-
-
 
     }
 

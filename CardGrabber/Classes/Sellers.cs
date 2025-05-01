@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace CardGrabber.Classes
+﻿namespace CardGrabber.Classes
 {
     internal class Sellers
     {
