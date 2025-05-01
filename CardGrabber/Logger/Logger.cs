@@ -37,7 +37,7 @@ public static class Logger
     // Output a debug message in gray
     public static void OutputDebug(string message)
     {
-        Console.ForegroundColor = ConsoleColor.Gray;
+        Console.ForegroundColor = ConsoleColor.Magenta;
         Console.WriteLine($"[DEBUG] {message}");
         Console.ResetColor();
     }

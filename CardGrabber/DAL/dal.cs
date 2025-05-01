@@ -38,7 +38,7 @@ WHERE
 
         public async Task CompleteRun(Run run)
         {
-            string sqlQuery = @"UPDATE CardGrabber.dbo.Runs SET End = @now WHERE RunId = @runId";
+            string sqlQuery = @"UPDATE CardGrabber.dbo.Runs SET [End] = @Now WHERE RunId = @RunId";
 
             using (var connection = new SqlConnection(_connectionString))
             {
@@ -116,7 +116,7 @@ WHERE
             }
         }
 
-        public async Task InsertSellerAsync(Sellers seller)
+        public async Task InsertSellerAsync(Sellers seller, Run run)
         {
             const string selectQuery = @"
 SELECT TOP 1 *
@@ -126,6 +126,7 @@ ORDER BY InsertDate DESC";
 
             const string insertQuery = @"
 INSERT INTO [CardGrabber].[dbo].[Sellers] (
+    runId,
     Username,
     Type,
     Info,
@@ -141,6 +142,7 @@ INSERT INTO [CardGrabber].[dbo].[Sellers] (
     InsertDate
 )
 VALUES (
+    @RunId,
     @Username,
     @Type,
     @Info,
@@ -153,7 +155,7 @@ VALUES (
     @SellNotArrived,
     @BuyNotPayed,
     @BuyNotReceived,
-    GETDATE()
+    @Now
 );";
 
             using (var connection = new SqlConnection(_connectionString))
@@ -164,10 +166,29 @@ VALUES (
 
                 if (existing == null || !IsSameSeller(existing, seller))
                 {
-                    await connection.ExecuteAsync(insertQuery, seller);
+                    var parameters = new
+                    {
+                        run.RunId,
+                        seller.Username,
+                        seller.Type,
+                        seller.Info,
+                        seller.CardMarketRank,
+                        seller.Country,
+                        seller.Singles,
+                        seller.Buy,
+                        seller.Sell,
+                        seller.SellNotSent,
+                        seller.SellNotArrived,
+                        seller.BuyNotPayed,
+                        seller.BuyNotReceived,
+                        DateTime.Now
+                    };
+
+                    await connection.ExecuteAsync(insertQuery, parameters);
                 }
             }
         }
+
 
         private bool IsSameSeller(Sellers oldSeller, Sellers newSeller)
         {
