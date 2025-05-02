@@ -72,7 +72,7 @@ public static class Logger
         {
             using IDbConnection db = new SqlConnection(_connectionString);
             string sql = @"
-            INSERT INTO dbo.Logs (RunId, Severity, LogDate, Message)
+            INSERT INTO CardGrabber.dbo.Logs (RunId, Severity, LogDate, Message)
             VALUES (@RunId, @Severity, @LogDate, @Message)";
 
             db.Execute(sql, new
