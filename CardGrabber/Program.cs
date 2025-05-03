@@ -1,12 +1,40 @@
 ﻿using Microsoft.Playwright;
 using CardGrabber.DAL;
 using CardGrabber.Classes;
-using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace CardMarketScraper
 {
+
     class Program
     {
+        private static ConsoleEventDelegate _handler; 
+        private static bool isShuttingDown = false; 
+
+        private delegate bool ConsoleEventDelegate(CtrlType sig);
+
+        [DllImport("Kernel32")]
+        private static extern bool SetConsoleCtrlHandler(ConsoleEventDelegate handler, bool add);
+
+        private enum CtrlType
+        {
+            CTRL_C_EVENT = 0,
+            CTRL_CLOSE_EVENT = 2,
+            CTRL_SHUTDOWN_EVENT = 6
+        }
+
+        private static bool Handler(CtrlType signal)
+        {
+            if (!isShuttingDown)
+            {
+                isShuttingDown = true;
+                Logger.OutputWarning("Shutdown signal received, performing final cleanup...", 0);
+                OnShutdown().GetAwaiter().GetResult(); 
+            }
+
+            return true;
+        }
+
         #region Configurations
         public static bool debugMode = false;
         public static bool onlyDBUsers = false;
@@ -14,16 +42,36 @@ namespace CardMarketScraper
         public static int runID = 0;
         public static string scraperUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
         #endregion
-        static async Task<Run> StartAndCollectNewRun()
-        {
-            Guid runId = Guid.NewGuid();
-            var dataAccess = new dal();
-            Run run = await dataAccess.CreateNewRun(runId);
-            return run;
-        }
+
 
         static async Task Main(string[] args)
         {
+
+            _handler = new ConsoleEventDelegate(Handler);
+            SetConsoleCtrlHandler(_handler, true);
+
+            AppDomain.CurrentDomain.ProcessExit += async (s, e) =>
+            {
+                if (!isShuttingDown)
+                {
+                    isShuttingDown = true;
+                    Logger.OutputWarning("Process is exiting... performing cleanup.", 0);
+                    await OnShutdown();
+                }
+            };
+
+            Console.CancelKeyPress += async (sender, e) =>
+            {
+                e.Cancel = true;
+                if (!isShuttingDown)
+                {
+                    isShuttingDown = true;
+                    Logger.OutputWarning("Ctrl+C pressed, cleaning up...", 0);
+                    await OnShutdown();
+                    Environment.Exit(0);
+                }
+            };
+
             int intervalInMinutes = 1;
             int intervalInMilliseconds = intervalInMinutes * 60 * 1000;
 
@@ -80,9 +128,9 @@ namespace CardMarketScraper
                 if (!onlyDBUsers)
                 {
                     Logger.OutputInfo($"Starting to get sellers from site", runID);
-                    string listingUrlDoubleRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=199&sortBy=price_asc&perSite=20&site=1";
-                    string listingUrlIllustrationRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=280&sortBy=price_asc&perSite=20&site=1";
-                    string listingUrlUltraRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=54&sortBy=price_asc&perSite=20&site=1";
+                    string listingUrlDoubleRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=199&sortBy=price_asc&perSite=20&site=6";
+                    string listingUrlIllustrationRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=280&sortBy=price_asc&perSite=20&site=6";
+                    string listingUrlUltraRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=54&sortBy=price_asc&perSite=20&site=6";
                     string listingUrlHoloRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=49&perSite=20"; // POPOLARI NON ORDINATE PER PREZZO!
                     siteSellers.AddRange(await getSellersFromUrl(listingUrlDoubleRare, "DoubleRare"));
                     siteSellers.AddRange(await getSellersFromUrl(listingUrlIllustrationRare, "IllustrationRare"));
@@ -174,7 +222,7 @@ namespace CardMarketScraper
                 await getItemsNum(existingSellers, run);
 
                 // RUN COMPLETE
-                await dataAccess.CompleteRun(run);
+                await dataAccess.CompleteRun(runID, "Completed");
                 Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("│      CARDMARKET GRABBER HAVE COMPLETED THE RUN!    │", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
@@ -183,6 +231,29 @@ namespace CardMarketScraper
                 await Task.Delay(intervalInMilliseconds);
             }
         }
+
+        static async Task<Run> StartAndCollectNewRun()
+        {
+            Guid runId = Guid.NewGuid();
+            var dataAccess = new dal();
+            Run run = await dataAccess.CreateNewRun(runId);
+            return run;
+        }
+
+        static async Task OnShutdown()
+        {
+            Logger.OutputWarning("Application is shutting down... performing cleanup.", 0);
+            try
+            {
+                var dataAccess = new dal();
+                await dataAccess.CompleteRun(runID, "Stopped");
+            }
+            catch (Exception ex)
+            {
+                Logger.OutputError($"Error during shutdown: {ex.Message}", 0);
+            }
+        }
+
 
         static async Task<List<Sellers>> getSellersFromUrl(string listingUrl, string type)
         {

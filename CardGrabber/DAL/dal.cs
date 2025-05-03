@@ -17,9 +17,9 @@ namespace CardGrabber.DAL
         {
             string sqlQuery = @"
 
-INSERT INTO CardGrabber.dbo.Runs ([RunIdentifier],[Start])
+INSERT INTO CardGrabber.dbo.Runs ([RunIdentifier],[Start],[Status], [Type])
 VALUES
-(@RunIdentifier,@Now)
+(@RunIdentifier,@Now, @Status, @type)
 
 SELECT [RunId],[RunIdentifier],[Start],[End] 
 FROM 
@@ -31,19 +31,19 @@ WHERE
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
-                var run = await connection.QuerySingleAsync<Run>(sqlQuery, new { RunIdentifier  = runIdentifier, DateTime.Now });
+                var run = await connection.QuerySingleAsync<Run>(sqlQuery, new { RunIdentifier  = runIdentifier, DateTime.Now, Status = "In Progress", type = "Test" });
                 return run;
             }
         }
 
-        public async Task CompleteRun(Run run)
+        public async Task CompleteRun(int runId, string status)
         {
-            string sqlQuery = @"UPDATE CardGrabber.dbo.Runs SET [End] = @Now WHERE RunId = @RunId";
+            string sqlQuery = @"UPDATE CardGrabber.dbo.Runs SET [End] = @Now, [Status] = @status WHERE RunId = @runId";
 
             using (var connection = new SqlConnection(_connectionString))
             {
                 await connection.OpenAsync();
-                await connection.ExecuteAsync(sqlQuery, new { run.RunId,DateTime.Now });
+                await connection.ExecuteAsync(sqlQuery, new { runId, DateTime.Now, status });
             }
         }
 
