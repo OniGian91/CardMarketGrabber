@@ -111,7 +111,19 @@ namespace CardMarketScraper
                     return;
                 }
                 runID = run.RunId;
-                Logger.OutputOk($"CardMarketGrabber started at {run.Start}. RunId: {run.RunId} RunIdentifier: {run.RunIdentifier}", runID);
+                string startupMessage = $"CardMarketGrabber started at {run.Start}. RunId: {run.RunId} RunIdentifier: {run.RunIdentifier}";
+                Logger.OutputOk(startupMessage, runID);
+
+                // TELEGRAM
+
+
+                using HttpClient client = new HttpClient();
+                HttpResponseMessage startupResponse = await client.GetAsync($"https://api.telegram.org/bot{botToken}/sendMessage?chat_id={chatId}&text={Uri.EscapeDataString(startupMessage)}");
+
+                if (startupResponse.IsSuccessStatusCode)
+                    Logger.OutputOk("Sent a notification on Telegram", runID);
+                else
+                    Logger.OutputError("Failed to send a notification on Telegram", runID);
 
                 // GET USER ON DB AN SITE ONE
                 Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
@@ -221,12 +233,21 @@ namespace CardMarketScraper
                 await getItemsNum(newSellers, run);
                 await getItemsNum(existingSellers, run);
 
+
+                // TELEGRAM
+                string completeRunMessage = "RunCompleted waiting for {intervalInMinutes} minute before next run...";
+                HttpResponseMessage completeResponse = await client.GetAsync($"https://api.telegram.org/bot{botToken}/sendMessage?chat_id={chatId}&text={Uri.EscapeDataString(completeRunMessage)}");
+
+                if (completeResponse.IsSuccessStatusCode)
+                    Logger.OutputOk("Sent a notification on Telegram", runID);
+                else
+                    Logger.OutputError("Failed to send a notification on Telegram", runID);
                 // RUN COMPLETE
                 await dataAccess.CompleteRun(runID, "Completed");
                 Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("│      CARDMARKET GRABBER HAVE COMPLETED THE RUN!    │", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
-                Logger.OutputOk($"RunCompleted waiting for {intervalInMinutes} minute before next run...\n", runID);
+                Logger.OutputOk(completeRunMessage, runID);
 
                 await Task.Delay(intervalInMilliseconds);
             }
