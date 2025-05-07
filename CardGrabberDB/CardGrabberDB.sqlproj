@@ -69,5 +69,7 @@
     <Build Include="Tables\dbo\Sellers.sql" />
     <Build Include="Tables\dbo\Runs.sql" />
     <Build Include="Tables\dbo\Logs.sql" />
+    <Build Include="Tables\dbo\Cards.sql" />
+    <Build Include="Tables\dbo\CardsInfo.sql" />
   </ItemGroup>
 </Project>

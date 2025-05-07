@@ -5,14 +5,15 @@ using System.Runtime.InteropServices;
 using System;
 using Microsoft.Extensions.Configuration;
 using System.IO;
+using System.Text.Json;
 
 namespace CardMarketScraper
 {
 
     class Program
     {
-        private static ConsoleEventDelegate _handler; 
-        private static bool isShuttingDown = false; 
+        private static ConsoleEventDelegate _handler;
+        private static bool isShuttingDown = false;
 
         private delegate bool ConsoleEventDelegate(CtrlType sig);
 
@@ -32,7 +33,7 @@ namespace CardMarketScraper
             {
                 isShuttingDown = true;
                 Logger.OutputWarning("Shutdown signal received, performing final cleanup...", 0);
-                OnShutdown().GetAwaiter().GetResult(); 
+                OnShutdown().GetAwaiter().GetResult();
             }
 
             return true;
@@ -76,17 +77,17 @@ namespace CardMarketScraper
             };
 
             var configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())  
-                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true) 
+                .SetBasePath(Directory.GetCurrentDirectory())
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
                 .Build();
-          
-            string botToken = configuration["TelegramBot:BotToken"]; 
+
+            string botToken = configuration["TelegramBot:BotToken"];
             string chatId = configuration["TelegramBot:ChatId"];
 
             // Access AppMode settings
             debugMode = bool.Parse(configuration["AppMode:debugMode"]);
             onlyDBUsers = bool.Parse(configuration["AppMode:onlyDBUsers"]);
-            only1User = bool.Parse(configuration["AppMode:only1User"]); 
+            only1User = bool.Parse(configuration["AppMode:only1User"]);
 
 
             int intervalInMinutes = 1;
@@ -114,9 +115,9 @@ namespace CardMarketScraper
 │        P O K É M O N       │
 │                            │
 └────────────────────────────┘
-", ConsoleColor.DarkBlue,0);
+", ConsoleColor.DarkBlue, 0);
 
-                Logger.OutputInfo("CardMarketGrabber is starting...",0);
+                Logger.OutputInfo("CardMarketGrabber is starting...", 0);
                 Run run = null;
                 try
                 {
@@ -124,7 +125,7 @@ namespace CardMarketScraper
                 }
                 catch (Exception ex)
                 {
-                    Logger.OutputError($"CardMarketGrabber error on start! Exception: {ex.Message}\n",0);
+                    Logger.OutputError($"CardMarketGrabber error on start! Exception: {ex.Message}\n", 0);
                     return;
                 }
                 runID = run.RunId;
@@ -140,13 +141,50 @@ namespace CardMarketScraper
                 else
                     Logger.OutputError("Failed to send a notification on Telegram", runID);
 
+                var dataAccess = new dal();
+
+                // GET CARDS STATS
+                Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
+                Logger.OutputCustom("│              CARD LOADING START                    │", ConsoleColor.Magenta, runID);
+                Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
+
+                using var playwright = await Playwright.CreateAsync();
+                await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+                {
+                    Headless = !debugMode,
+                    SlowMo = 100
+                });
+
+                var context = await browser.NewContextAsync(new BrowserNewContextOptions
+                {
+                    ViewportSize = new ViewportSize { Width = 1280, Height = 800 },
+                    UserAgent = scraperUserAgent
+                });
+
+                List<Card> cards = await dataAccess.GetAllCardsAsync();
+
+                for (int i = 0; i < cards.Count; i++)
+                {
+                    Card card = cards[i];
+
+                    Logger.OutputInfo($"[{(i + 1).ToString().PadLeft(2, '0')}/{cards.Count}] {card.CardName}", runID);
+                    List<CardsInfo> cardsInfos;
+
+                    cardsInfos = await LoadMoreAndGetCardInfoAsync(card, context);
+                    await dataAccess.InsertCardInfo(card.CardID, JsonSerializer.Serialize(cardsInfos).ToString());
+
+                    Logger.OutputInfo("Waiting 5 seconds before next card...\n", runID);
+                    await Task.Delay(5000);
+
+                }
+
+
                 // GET USER ON DB AN SITE ONE
                 Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("│              SELLER LOADING START                  │", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
 
                 Logger.OutputInfo($"Starting to get sellers from DataBase", runID);
-                var dataAccess = new dal();
                 IEnumerable<Sellers> dbSellers = await dataAccess.GetSellers();
                 Logger.OutputOk($"Get {dbSellers.Count()} sellers from DataBase\n", runID);
 
@@ -190,7 +228,7 @@ namespace CardMarketScraper
                 }
                 else
                 {
-                    existingSellers = dbSellers.ToList(); 
+                    existingSellers = dbSellers.ToList();
                 }
 
                 if (only1User && existingSellers.Any())
@@ -204,18 +242,7 @@ namespace CardMarketScraper
                 Logger.OutputCustom("│         SELLER INFO COLLECTING START               │", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
 
-                using var playwright = await Playwright.CreateAsync();
-                await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-                {
-                    Headless = !debugMode,
-                    SlowMo = 100
-                });
 
-                var context = await browser.NewContextAsync(new BrowserNewContextOptions
-                {
-                    ViewportSize = new ViewportSize { Width = 1280, Height = 800 },
-                    UserAgent = scraperUserAgent
-                });
 
                 await context.RouteAsync("**/*", async route =>
                 {
@@ -288,7 +315,6 @@ namespace CardMarketScraper
             }
         }
 
-
         static async Task<List<Sellers>> getSellersFromUrl(string listingUrl, string type)
         {
             using var playwright = await Playwright.CreateAsync();
@@ -313,7 +339,7 @@ namespace CardMarketScraper
                     await route.ContinueAsync();
             });
             var page = await context.NewPageAsync();
-            page.SetDefaultTimeout(5000); 
+            page.SetDefaultTimeout(5000);
 
             List<Sellers> usersList = new List<Sellers>();
 
@@ -406,7 +432,6 @@ namespace CardMarketScraper
             return usersList;
         }
 
-
         static async Task<List<SellerItemsInfo>> getItemsNumV2(Sellers seller, IBrowserContext context, Run run)
         {
             var page = await context.NewPageAsync();
@@ -456,9 +481,6 @@ namespace CardMarketScraper
 
             return itemStatsList;
         }
-
-
-
 
         static async Task GetSellerInfoAsync(string userName, IBrowserContext context, Run run)
         {
@@ -564,7 +586,7 @@ namespace CardMarketScraper
                 }
 
                 var dataAccess = new dal();
-                await dataAccess.InsertSellerAsync(seller,run);
+                await dataAccess.InsertSellerAsync(seller, run);
 
                 Logger.OutputOk($"Info collected", runID);
 
@@ -579,8 +601,6 @@ namespace CardMarketScraper
                 await page.CloseAsync();
             }
         }
-
-
 
         static async Task<(int totalCount, float avgPrice)> GetTotalCountFromUserPage(IPage page, string url, string userName)
         {
@@ -656,5 +676,113 @@ namespace CardMarketScraper
                 return (0, 0f);
             }
         }
+
+        static async Task<List<CardsInfo>> LoadMoreAndGetCardInfoAsync(Card card, IBrowserContext context)
+        {
+            var page = await context.NewPageAsync();
+
+            // Navigate to the card URL
+            await page.GotoAsync(card.CardUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
+
+            // Initialize a list to store CardInfo objects
+            var cardInfoList = new List<CardsInfo>();
+
+            for (int i = 0; i < 10; i++)
+            {
+                var loadMoreButton = await page.QuerySelectorAsync("#loadMoreButton");
+
+                if (loadMoreButton == null)
+                {
+                    break;
+                }
+
+                try
+                {
+                    await page.WaitForSelectorAsync("#loadMoreButton:visible", new PageWaitForSelectorOptions { Timeout = 5000 });
+                    await loadMoreButton.ClickAsync();
+                    await page.WaitForTimeoutAsync(1000);
+                }
+                catch (TimeoutException)
+                {
+                    break;
+                }
+            }
+
+
+            var articleRows = await page.QuerySelectorAllAsync(".article-row");
+
+            foreach (var row in articleRows)
+            {
+                var sellerUsernameElement = await row.QuerySelectorAsync(".seller-name a");
+                var sellerUsername = sellerUsernameElement is not null
+                    ? await sellerUsernameElement.InnerTextAsync()
+                    : string.Empty;
+
+                var sellerCountryElement = await row.QuerySelectorAsync(".icon[aria-label]");
+                var sellerCountry = sellerCountryElement is not null
+                    ? await sellerCountryElement.GetAttributeAsync("aria-label")
+                    : string.Empty;
+
+                var cardConditionElement = await row.QuerySelectorAsync(".article-condition .badge");
+                var cardCondition = cardConditionElement is not null
+                    ? await cardConditionElement.InnerTextAsync()
+                    : string.Empty;
+
+                var cardLanguageElement = await row.QuerySelectorAsync(".product-attributes .icon[aria-label]");
+                var cardLanguage = cardLanguageElement is not null
+                    ? await cardLanguageElement.GetAttributeAsync("aria-label")
+                    : string.Empty;
+
+                var cardPriceElement = await row.QuerySelectorAsync(".color-primary");
+                string cardPriceText = cardPriceElement is not null
+                    ? await cardPriceElement.InnerTextAsync()
+                    : string.Empty;
+
+                decimal cardPrice = 0;
+                if (!string.IsNullOrEmpty(cardPriceText))
+                {
+                    cardPriceText = cardPriceText.Replace("€", "").Trim();
+
+                    var match = System.Text.RegularExpressions.Regex.Match(cardPriceText, @"\d+([.,]\d{1,2})?");
+                    if (match.Success)
+                    {
+                        decimal.TryParse(match.Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cardPrice);
+                    }
+                }
+
+                var cardQuantityElement = await row.QuerySelectorAsync(".item-count");
+                string cardQuantityText = cardQuantityElement is not null
+                    ? await cardQuantityElement.InnerTextAsync()
+                    : string.Empty;
+
+                int cardQuantity = int.TryParse(cardQuantityText?.Trim(), out var quantity) ? quantity : 0;
+
+                var cardCommentElement = await row.QuerySelectorAsync(".product-comments .d-block.text-truncate");
+                var cardComment = cardCommentElement is not null
+                    ? await cardCommentElement.InnerTextAsync()
+                    : string.Empty;
+
+                var cardInfo = new CardsInfo(
+                    card.CardID,
+                    sellerUsername,
+                    sellerCountry,
+                    cardCondition,
+                    cardLanguage,
+                    cardComment,
+                    cardPrice,
+                    cardQuantity
+                );
+
+
+                cardInfoList.Add(cardInfo);
+            }
+
+            // Close the page after scraping
+            await page.CloseAsync();
+
+            // Return the list of card info
+            return cardInfoList;
+        }
+
     }
 }

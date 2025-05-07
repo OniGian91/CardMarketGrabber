@@ -6,7 +6,7 @@ namespace CardGrabber.DAL
 {
     internal class dal
     {
-        private readonly string _connectionString = "Data Source=localhost;Integrated Security=True;Persist Security Info=False;Pooling=False;MultipleActiveResultSets=False;Connect Timeout=60;Encrypt=False;TrustServerCertificate=True;";
+        private readonly string _connectionString = "Data Source=localhost;Initial Catalog=CardGrabber;Integrated Security=True;Persist Security Info=False;Pooling=False;MultipleActiveResultSets=False;Connect Timeout=60;Encrypt=False;TrustServerCertificate=True;";
 
         public dal()
         {
@@ -203,6 +203,35 @@ VALUES (
                    oldSeller.SellNotArrived == newSeller.SellNotArrived &&
                    oldSeller.BuyNotPayed == newSeller.BuyNotPayed &&
                    oldSeller.BuyNotReceived == newSeller.BuyNotReceived;
+        }
+
+
+        public async Task InsertCardInfo(int cardId, string info)
+        {
+            const string query = @"
+            INSERT INTO dbo.CardsInfo (CardID, CollectDate, Info)
+            VALUES (@CardID, @CollectDate, @Info);";
+
+            using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            await connection.ExecuteAsync(query, new
+            {
+                CardID = cardId,
+                CollectDate = DateTime.Now,
+                Info = info
+            });
+        }
+
+        public async Task<List<Card>> GetAllCardsAsync()
+        {
+            const string query = "SELECT CardID, CardName, CardUrl FROM dbo.Cards";
+
+            using var connection = new SqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            var cards = await connection.QueryAsync<Card>(query);
+            return cards.AsList();
         }
 
     }
