@@ -2,6 +2,9 @@
 using CardGrabber.DAL;
 using CardGrabber.Classes;
 using System.Runtime.InteropServices;
+using System;
+using Microsoft.Extensions.Configuration;
+using System.IO;
 
 namespace CardMarketScraper
 {
@@ -36,9 +39,9 @@ namespace CardMarketScraper
         }
 
         #region Configurations
-        public static bool debugMode = false;
-        public static bool onlyDBUsers = false;
-        public static bool only1User = false;
+        public static bool debugMode;
+        public static bool onlyDBUsers;
+        public static bool only1User;
         public static int runID = 0;
         public static string scraperUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
         #endregion
@@ -71,6 +74,20 @@ namespace CardMarketScraper
                     Environment.Exit(0);
                 }
             };
+
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory())  
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true) 
+                .Build();
+          
+            string botToken = configuration["TelegramBot:BotToken"]; 
+            string chatId = configuration["TelegramBot:ChatId"];
+
+            // Access AppMode settings
+            debugMode = bool.Parse(configuration["AppMode:debugMode"]);
+            onlyDBUsers = bool.Parse(configuration["AppMode:onlyDBUsers"]);
+            only1User = bool.Parse(configuration["AppMode:only1User"]); 
+
 
             int intervalInMinutes = 1;
             int intervalInMilliseconds = intervalInMinutes * 60 * 1000;
@@ -115,8 +132,6 @@ namespace CardMarketScraper
                 Logger.OutputOk(startupMessage, runID);
 
                 // TELEGRAM
-
-
                 using HttpClient client = new HttpClient();
                 HttpResponseMessage startupResponse = await client.GetAsync($"https://api.telegram.org/bot{botToken}/sendMessage?chat_id={chatId}&text={Uri.EscapeDataString(startupMessage)}");
 
@@ -214,28 +229,26 @@ namespace CardMarketScraper
                 for (int i = 0; i < newSellers.Count; i++)
                 {
                     var seller = newSellers[i];
-                    Logger.OutputInfo($"Collecting info for  {seller.Username} ({i + 1}/{newSellers.Count})", runID);
+                    Logger.OutputInfo($"[{(i + 1).ToString().PadLeft(2, '0')}/{existingSellers.Count}] {seller.Username}", runID);
                     await GetSellerInfoAsync(seller.Username, context, run);
-                }
+                    List<SellerItemsInfo> itemStats = await getItemsNumV2(seller, context, run);
+                    Logger.OutputInfo("Waiting 5 seconds before next seller...\n", runID);
+                    await Task.Delay(5000);
 
+                }
                 for (int i = 0; i < existingSellers.Count; i++)
                 {
                     var seller = existingSellers[i];
-                    Logger.OutputInfo($"Collecting info for  {seller.Username} ({i + 1}/{existingSellers.Count})", runID);
+                    Logger.OutputInfo($"[{(i + 1).ToString().PadLeft(2, '0')}/{existingSellers.Count}] {seller.Username}", runID);
                     await GetSellerInfoAsync(seller.Username, context, run);
+                    List<SellerItemsInfo> itemStats = await getItemsNumV2(seller, context, run);
+                    Logger.OutputInfo("Waiting 5 seconds before next seller...\n", runID);
+                    await Task.Delay(5000);
                 }
-
-                // ITEMS INFO COLLECTING
-
-                Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("│         SELLER ITEMS COLLECTING START              │", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
-                await getItemsNum(newSellers, run);
-                await getItemsNum(existingSellers, run);
 
 
                 // TELEGRAM
-                string completeRunMessage = "RunCompleted waiting for {intervalInMinutes} minute before next run...";
+                string completeRunMessage = $"RunCompleted waiting for {intervalInMinutes} minute before next run...";
                 HttpResponseMessage completeResponse = await client.GetAsync($"https://api.telegram.org/bot{botToken}/sendMessage?chat_id={chatId}&text={Uri.EscapeDataString(completeRunMessage)}");
 
                 if (completeResponse.IsSuccessStatusCode)
@@ -394,58 +407,58 @@ namespace CardMarketScraper
         }
 
 
-        static async Task getItemsNum(List<Sellers> users, Run run)
+        static async Task<List<SellerItemsInfo>> getItemsNumV2(Sellers seller, IBrowserContext context, Run run)
         {
-            using var playwright = await Playwright.CreateAsync();
-            var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-            {
-                Headless = !debugMode,
-                SlowMo = 100
-            });
-
-            var context = await browser.NewContextAsync(new BrowserNewContextOptions
-            {
-                ViewportSize = new ViewportSize { Width = 1280, Height = 800 },
-                UserAgent = scraperUserAgent
-            });
-
-            await context.RouteAsync("**/*", async route =>
-            {
-                var req = route.Request;
-                if (req.ResourceType == "stylesheet" || req.ResourceType == "image" || req.ResourceType == "font")
-                    await route.AbortAsync();
-                else
-                    await route.ContinueAsync();
-            });
-
             var page = await context.NewPageAsync();
-            var dataAccess = new dal();
 
+            // Base URL for the seller's offers
+            string baseUrl = $"https://www.cardmarket.com/it/Pokemon/Users/{seller.Username}/Offers/Singles?condition=3&sortBy=price_asc";
 
-            for (int i = 0; i < users.Count; i++)
+            // URLs for each rarity type
+            var rarityUrls = new Dictionary<string, string>
+    {
+        { "DoubleRare", $"{baseUrl}&maxPrice=0.3&idRarity=199" },
+        { "UltraRare", $"{baseUrl}&maxPrice=1&idRarity=54" },
+        { "IllustrationRare", $"{baseUrl}&maxPrice=0.8&idRarity=280" },
+        { "HoloRare", $"{baseUrl}&maxPrice=0.05&idRarity=4&isReverseHolo=N9" }
+    };
+
+            // List to collect item stats
+            var itemStatsList = new List<SellerItemsInfo>();
+
+            // Collect data for each rarity type
+            foreach (var rarity in rarityUrls)
             {
-                var user = users[i];
-                Logger.OutputInfo($"Collecting items for {user.Username} ({i + 1}/{users.Count})", runID);
-                // idLanguage=5 per filtrare solo roba in italiano
-                string urlDoubleRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Username}/Offers/Singles?maxPrice=0.3&condition=3&idRarity=199&sortBy=price_asc";
-                string urlUltraRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Username}/Offers/Singles?maxPrice=1&condition=3&idRarity=54&sortBy=price_asc";
-                string urlIllustrationRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Username}/Offers/Singles?maxPrice=0.8&condition=3&idRarity=280&sortBy=price_asc";
-                string urlHoloRare = $"https://www.cardmarket.com/it/Pokemon/Users/{user.Username}/Offers/Singles?maxPrice=0.05&condition=3&idRarity=4&isReverseHolo=N9&sortBy=price_asc";
-
-                var (doubleRareCount, doubleRareAvgPrice) = await GetTotalCountFromUserPage(page, urlDoubleRare, user.Username);
-                var (ultraRareCount, ultraRareAvgPrice) = await GetTotalCountFromUserPage(page, urlUltraRare, user.Username);
-                var (illustrationRareCount, illustrationRareAvgPrice) = await GetTotalCountFromUserPage(page, urlIllustrationRare, user.Username);
-                var (holoRareCount, holoRareAvgPrice) = await GetTotalCountFromUserPage(page, urlHoloRare, user.Username);
-
-                dataAccess.StoreSellerItemInfo(user.Username, doubleRareCount, doubleRareAvgPrice, ultraRareCount, ultraRareAvgPrice, illustrationRareCount, illustrationRareAvgPrice, holoRareCount, holoRareAvgPrice, run);
-
-                Logger.OutputOk($"DoubleRare: {doubleRareCount}, UltraRare: {ultraRareCount}, IllustrationRare: {illustrationRareCount}, HoloRare: {holoRareCount}", runID);
-                Logger.OutputInfo($"Waiting 5 seconds before next user...\n", runID);
-
-                await Task.Delay(5000);
+                var (count, avgPrice) = await GetTotalCountFromUserPage(page, rarity.Value, seller.Username);
+                itemStatsList.Add(new SellerItemsInfo(rarity.Key, count, avgPrice));
             }
-            await browser.CloseAsync();
+
+            // Optionally store the data in the database
+            var dataAccess = new dal();
+            dataAccess.StoreSellerItemInfo(
+                seller.Username,
+                itemStatsList.First(i => i.ItemType == "DoubleRare").Count, itemStatsList.First(i => i.ItemType == "DoubleRare").AveragePrice,
+                itemStatsList.First(i => i.ItemType == "UltraRare").Count, itemStatsList.First(i => i.ItemType == "UltraRare").AveragePrice,
+                itemStatsList.First(i => i.ItemType == "IllustrationRare").Count, itemStatsList.First(i => i.ItemType == "IllustrationRare").AveragePrice,
+                itemStatsList.First(i => i.ItemType == "HoloRare").Count, itemStatsList.First(i => i.ItemType == "HoloRare").AveragePrice,
+                run
+            );
+
+            var itemStatsLog = string.Join(", ", itemStatsList.Select(i => $"{i.ItemType}: {i.Count}"));
+            // Output log in the format you specified
+            var doubleRareCount = itemStatsList.First(i => i.ItemType == "DoubleRare").Count;
+            var ultraRareCount = itemStatsList.First(i => i.ItemType == "UltraRare").Count;
+            var illustrationRareCount = itemStatsList.First(i => i.ItemType == "IllustrationRare").Count;
+            var holoRareCount = itemStatsList.First(i => i.ItemType == "HoloRare").Count;
+
+            Logger.OutputOk($"DoubleRare: {doubleRareCount}, UltraRare: {ultraRareCount}, IllustrationRare: {illustrationRareCount}, HoloRare: {holoRareCount}", run.RunId);
+            await page.CloseAsync();
+
+            return itemStatsList;
         }
+
+
+
 
         static async Task GetSellerInfoAsync(string userName, IBrowserContext context, Run run)
         {
@@ -553,13 +566,12 @@ namespace CardMarketScraper
                 var dataAccess = new dal();
                 await dataAccess.InsertSellerAsync(seller,run);
 
-                Logger.OutputOk($"Collected info for {userName} Waiting 5 seconds before next user...\n", runID);
+                Logger.OutputOk($"Info collected", runID);
 
-                await Task.Delay(500);
             }
             catch (Exception ex)
             {
-                Logger.OutputError($"Failed to collect info for {userName}: {ex.Message}\n", runID);
+                Logger.OutputError($"Failed to collect info for {userName}: {ex.Message}", runID);
 
             }
             finally
@@ -582,8 +594,8 @@ namespace CardMarketScraper
 
                 if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
                 {
-                    Logger.OutputWarning($"Error processing {{userName}} - Received HTTP 429. Waiting 1 minute and retry...\n", runID);
-                    await Task.Delay(TimeSpan.FromMinutes(1));
+                    Logger.OutputWarning($"Received HTTP 429. Waiting 30 seconds and retry...", runID);
+                    await Task.Delay(TimeSpan.FromSeconds(30));
                     return await GetTotalCountFromUserPage(page, url, userName);
                 }
 
@@ -641,7 +653,6 @@ namespace CardMarketScraper
             catch (TimeoutException ex)
             {
                 Logger.OutputError($"Timeout navigating to URL for {userName} exception: {ex.Message}", runID);
-
                 return (0, 0f);
             }
         }
