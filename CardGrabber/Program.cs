@@ -171,7 +171,7 @@ namespace CardMarketScraper
                     List<CardsInfo> cardsInfos;
 
                     cardsInfos = await LoadMoreAndGetCardInfoAsync(card, context);
-                    await dataAccess.InsertCardInfo(card.CardID, JsonSerializer.Serialize(cardsInfos).ToString());
+                    await dataAccess.InsertCardInfo(runID, card.CardID, JsonSerializer.Serialize(cardsInfos).ToString());
 
                     Logger.OutputInfo("Waiting 5 seconds before next card...\n", runID);
                     await Task.Delay(5000);
@@ -614,8 +614,8 @@ namespace CardMarketScraper
 
                 if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
                 {
-                    Logger.OutputWarning($"Received HTTP 429. Waiting 30 seconds and retry...", runID);
-                    await Task.Delay(TimeSpan.FromSeconds(30));
+                    Logger.OutputWarning($"Received HTTP 429. Waiting 60 seconds and retry...", runID);
+                    await Task.Delay(TimeSpan.FromSeconds(60));
                     return await GetTotalCountFromUserPage(page, url, userName);
                 }
 
@@ -743,11 +743,10 @@ namespace CardMarketScraper
                 {
                     cardPriceText = cardPriceText.Replace("€", "").Trim();
 
-                    var match = System.Text.RegularExpressions.Regex.Match(cardPriceText, @"\d+([.,]\d{1,2})?");
-                    if (match.Success)
-                    {
-                        decimal.TryParse(match.Value.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cardPrice);
-                    }
+                    // Remove thousands separator and replace decimal comma with dot
+                    cardPriceText = cardPriceText.Replace(".", "").Replace(",", ".");
+
+                    decimal.TryParse(cardPriceText, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cardPrice);
                 }
 
                 var cardQuantityElement = await row.QuerySelectorAsync(".item-count");

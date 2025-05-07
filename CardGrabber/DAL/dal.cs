@@ -206,17 +206,18 @@ VALUES (
         }
 
 
-        public async Task InsertCardInfo(int cardId, string info)
+        public async Task InsertCardInfo(int RunId, int cardId, string info)
         {
             const string query = @"
-            INSERT INTO dbo.CardsInfo (CardID, CollectDate, Info)
-            VALUES (@CardID, @CollectDate, @Info);";
+            INSERT INTO dbo.CardsInfo (RunID, CardID, CollectDate, Info)
+            VALUES (@RunId, @CardID, @CollectDate, @Info);";
 
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();
 
             await connection.ExecuteAsync(query, new
             {
+                RunId,
                 CardID = cardId,
                 CollectDate = DateTime.Now,
                 Info = info

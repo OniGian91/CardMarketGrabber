@@ -1,5 +1,6 @@
 CREATE TABLE dbo.CardsInfo
 (
+    RunID INT NOT NULL,
     CardID INT NOT NULL, 
     CollectDate DATETIME,
     Info VARCHAR(MAX)
