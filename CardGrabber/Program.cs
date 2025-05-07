@@ -1,11 +1,14 @@
 ﻿using Microsoft.Playwright;
 using CardGrabber.DAL;
-using CardGrabber.Classes;
+using CardGrabber.Models;
 using System.Runtime.InteropServices;
 using System;
 using Microsoft.Extensions.Configuration;
 using System.IO;
 using System.Text.Json;
+using CardGrabber.Configuration;
+using CardGrabber.Services.Internal;
+using CardGrabber.Services;
 
 namespace CardMarketScraper
 {
@@ -33,7 +36,8 @@ namespace CardMarketScraper
             {
                 isShuttingDown = true;
                 Logger.OutputWarning("Shutdown signal received, performing final cleanup...", 0);
-                OnShutdown().GetAwaiter().GetResult();
+                RunManager runManager = new RunManager();
+                runManager.CompleteRun(runID, "Stopped").GetAwaiter().GetResult();
             }
 
             return true;
@@ -50,6 +54,7 @@ namespace CardMarketScraper
 
         static async Task Main(string[] args)
         {
+            var config = ConfigurationLoader.Load();
 
             _handler = new ConsoleEventDelegate(Handler);
             SetConsoleCtrlHandler(_handler, true);
@@ -60,7 +65,8 @@ namespace CardMarketScraper
                 {
                     isShuttingDown = true;
                     Logger.OutputWarning("Process is exiting... performing cleanup.", 0);
-                    await OnShutdown();
+                    RunManager runManager = new RunManager();
+                    await runManager.CompleteRun(runID,"Stopped");
                 }
             };
 
@@ -71,23 +77,20 @@ namespace CardMarketScraper
                 {
                     isShuttingDown = true;
                     Logger.OutputWarning("Ctrl+C pressed, cleaning up...", 0);
-                    await OnShutdown();
+                    RunManager runManager = new RunManager();
+                    await runManager.CompleteRun(runID, "Stopped");
                     Environment.Exit(0);
                 }
             };
 
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-                .Build();
+        
 
-            string botToken = configuration["TelegramBot:BotToken"];
-            string chatId = configuration["TelegramBot:ChatId"];
+           
 
             // Access AppMode settings
-            debugMode = bool.Parse(configuration["AppMode:debugMode"]);
-            onlyDBUsers = bool.Parse(configuration["AppMode:onlyDBUsers"]);
-            only1User = bool.Parse(configuration["AppMode:only1User"]);
+            debugMode = config.AppMode.DebugMode;
+            onlyDBUsers = config.AppMode.OnlyDBUsers;
+            only1User = config.AppMode.Only1User;
 
 
             int intervalInMinutes = 1;
@@ -100,7 +103,6 @@ namespace CardMarketScraper
                 Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("│        STARTUP CARDMARKET GRABBER                  │", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
-
                 Logger.OutputCustom(@"
 ┌────────────────────────────┐
 │                            │
@@ -118,28 +120,27 @@ namespace CardMarketScraper
 ", ConsoleColor.DarkBlue, 0);
 
                 Logger.OutputInfo("CardMarketGrabber is starting...", 0);
+                RunManager runManager = new RunManager();
+
                 Run run = null;
                 try
                 {
-                    run = await StartAndCollectNewRun();
+                    run = await runManager.StartRun();
+                    runID = run.RunId;
                 }
                 catch (Exception ex)
                 {
                     Logger.OutputError($"CardMarketGrabber error on start! Exception: {ex.Message}\n", 0);
                     return;
-                }
-                runID = run.RunId;
+                }                
+
                 string startupMessage = $"CardMarketGrabber started at {run.Start}. RunId: {run.RunId} RunIdentifier: {run.RunIdentifier}";
                 Logger.OutputOk(startupMessage, runID);
 
-                // TELEGRAM
-                using HttpClient client = new HttpClient();
-                HttpResponseMessage startupResponse = await client.GetAsync($"https://api.telegram.org/bot{botToken}/sendMessage?chat_id={chatId}&text={Uri.EscapeDataString(startupMessage)}");
+                TelegramManager telegramManager = new TelegramManager();
+                telegramManager.SendNotification(startupMessage);
+                Logger.OutputOk($"Sent a notification on Telegram\n", 0);
 
-                if (startupResponse.IsSuccessStatusCode)
-                    Logger.OutputOk("Sent a notification on Telegram", runID);
-                else
-                    Logger.OutputError("Failed to send a notification on Telegram", runID);
 
                 var dataAccess = new dal();
 
@@ -276,14 +277,14 @@ namespace CardMarketScraper
 
                 // TELEGRAM
                 string completeRunMessage = $"RunCompleted waiting for {intervalInMinutes} minute before next run...";
-                HttpResponseMessage completeResponse = await client.GetAsync($"https://api.telegram.org/bot{botToken}/sendMessage?chat_id={chatId}&text={Uri.EscapeDataString(completeRunMessage)}");
+                telegramManager.SendNotification(completeRunMessage);
 
-                if (completeResponse.IsSuccessStatusCode)
-                    Logger.OutputOk("Sent a notification on Telegram", runID);
-                else
-                    Logger.OutputError("Failed to send a notification on Telegram", runID);
+
                 // RUN COMPLETE
-                await dataAccess.CompleteRun(runID, "Completed");
+                runManager.CompleteRun(runID, "Completed");
+
+
+
                 Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("│      CARDMARKET GRABBER HAVE COMPLETED THE RUN!    │", ConsoleColor.Magenta, runID);
                 Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
@@ -293,27 +294,9 @@ namespace CardMarketScraper
             }
         }
 
-        static async Task<Run> StartAndCollectNewRun()
-        {
-            Guid runId = Guid.NewGuid();
-            var dataAccess = new dal();
-            Run run = await dataAccess.CreateNewRun(runId);
-            return run;
-        }
 
-        static async Task OnShutdown()
-        {
-            Logger.OutputWarning("Application is shutting down... performing cleanup.", 0);
-            try
-            {
-                var dataAccess = new dal();
-                await dataAccess.CompleteRun(runID, "Stopped");
-            }
-            catch (Exception ex)
-            {
-                Logger.OutputError($"Error during shutdown: {ex.Message}", 0);
-            }
-        }
+
+      
 
         static async Task<List<Sellers>> getSellersFromUrl(string listingUrl, string type)
         {

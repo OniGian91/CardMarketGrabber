@@ -1,4 +1,4 @@
-﻿namespace CardGrabber.Classes
+﻿namespace CardGrabber.Models
 {
     internal class Sellers
     {

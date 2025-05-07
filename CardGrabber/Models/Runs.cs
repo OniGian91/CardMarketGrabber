@@ -1,4 +1,4 @@
-﻿namespace CardGrabber.Classes
+﻿namespace CardGrabber.Models
 {
     internal class Run
     {
@@ -8,6 +8,4 @@
         public DateTime End { get; set; }
 
     }
-
-
 }
