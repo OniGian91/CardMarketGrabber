@@ -5,7 +5,6 @@ using Microsoft.Data.SqlClient;
 
 namespace CardGrabber.Services.Internal
 {
-
     internal class RunManager
     {
         private readonly string _connectionString;

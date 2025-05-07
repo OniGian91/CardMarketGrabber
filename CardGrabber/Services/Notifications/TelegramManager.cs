@@ -1,5 +1,4 @@
-﻿
-using CardGrabber.Configuration;
+﻿using CardGrabber.Configuration;
 
 namespace CardGrabber.Services
 {
