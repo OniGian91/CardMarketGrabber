@@ -96,6 +96,7 @@ namespace CardMarketScraper
                         Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
 
                         await playwrightManager.GetCardsInfo(context, run);
+                        await Task.Delay(30000);
                     }
                     else
                     {
@@ -104,24 +105,27 @@ namespace CardMarketScraper
 
                     List<Sellers> sellers = new List<Sellers>();
 
-                    if (config.AppStrategy.collectSellersItems)
+                    if (config.AppStrategy.collectSellersItems || config.AppStrategy.collectSellers)
                     {
                         Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
                         Logger.OutputCustom("│              SELLER LOADING START                  │", ConsoleColor.Magenta, runID);
                         Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
                         List<Sellers> siteSellers = new List<Sellers>();
+                        List<Sellers> dbSellers = new List<Sellers>();
 
                         if (config.AppStrategy.collectSellers)
                         {
                             siteSellers = await playwrightManager.GetSellersFromSite(context, run);
                         }
-
-                        List<Sellers> dbSellers = await playwrightManager.GetSellersFromDB(context, run);
-
+                        if (config.AppStrategy.collectSellersItems)
+                        {
+                            dbSellers = await playwrightManager.GetSellersFromDB(context, run);
+                        }
                         sellers = dbSellers
                              .Concat(siteSellers)
                              .DistinctBy(s => s.Username)
                              .ToList();
+                        await Task.Delay(30000);
                     }
                     else
                     {
@@ -139,7 +143,7 @@ namespace CardMarketScraper
                         {
                             var seller = sellers[i];
                             Logger.OutputInfo($"[{(i + 1).ToString().PadLeft(2, '0')}/{sellers.Count}] {seller.Username}", runID);
-                            await playwrightManager.GetSellerInfoAsync(seller.Username, context, run);
+                            await playwrightManager.CollectSellerItems(seller.Username, context, run);
                             List<SellerItemsInfo> itemStats = await playwrightManager.getSellerItemsInfo(seller, context, run);
                             Logger.OutputInfo("Waiting 5 seconds before next seller...\n", runID);
                             await Task.Delay(5000);

@@ -27,125 +27,113 @@ namespace CardGrabber.Services.Playwright
             return dbSellers;
         }
 
-        public async Task<List<Sellers>> GetSellersFromSite(IBrowserContext context,Run run)
+        public async Task<List<Sellers>> CollectSellersFromSite(IBrowserContext context, Run run)
         {
-            List<Sellers> siteSellers;
-            siteSellers = new List<Sellers>();
+            List<Sellers> siteSellers = new List<Sellers>();
 
-            Logger.OutputInfo($"Starting to get sellers from site", run.RunId);
-            string listingUrlDoubleRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=199&sortBy=price_asc&perSite=20&site=6";
-            string listingUrlIllustrationRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=280&sortBy=price_asc&perSite=20&site=6";
-            string listingUrlUltraRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=54&sortBy=price_asc&perSite=20&site=6";
-            string listingUrlHoloRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=49&perSite=20"; // POPOLARI NON ORDINATE PER PREZZO!
-            siteSellers.AddRange(await getSellersFromUrl(context, listingUrlDoubleRare, "DoubleRare", run));
-            siteSellers.AddRange(await getSellersFromUrl(context, listingUrlIllustrationRare, "IllustrationRare", run));
-            siteSellers.AddRange(await getSellersFromUrl(context, listingUrlUltraRare, "UltraRare", run));
-            siteSellers.AddRange(await getSellersFromUrl(context, listingUrlHoloRare, "HoloRare", run));
-            siteSellers = siteSellers
-                .GroupBy(u => u.Username)
-                .Select(g => g.First())
-                .ToList();
-            Logger.OutputOk($"Get {siteSellers.Count()} sellers from site\n", run.RunId);
-
-            return siteSellers;
-        }
-
-
-        public async Task<List<Sellers>> getSellersFromUrl(IBrowserContext context, string listingUrl, string type, Run run)
-        {
+            Logger.OutputInfo("Starting to get sellers from site", run.RunId);
 
             var page = await context.NewPageAsync();
             page.SetDefaultTimeout(5000);
-
-            List<Sellers> siteSellers = new List<Sellers>();
-
-            await page.GotoAsync(listingUrl);
+            await page.GotoAsync("https://www.cardmarket.com/it/Pokemon/Products/Singles");
 
             var productDivs = await page.Locator("div[id^='productRow']").AllAsync();
-            for (int i = 0; i < productDivs.Count; i++)
-            {
-                var product = productDivs[i];
 
+            // Step 1: Collect all product URLs first
+            List<string> productUrls = new List<string>();
+
+            foreach (var product in productDivs)
+            {
                 try
                 {
                     var productHandle = await product.ElementHandleAsync();
                     if (productHandle == null) continue;
-                    var linkHandles = await productHandle.QuerySelectorAllAsync("a");
-                    string productUrl = null;
 
+                    var linkHandles = await productHandle.QuerySelectorAllAsync("a");
                     foreach (var link in linkHandles)
                     {
                         var href = await link.GetAttributeAsync("href");
                         if (!string.IsNullOrEmpty(href) && href.Contains("/Singles/"))
                         {
-                            productUrl = $"https://www.cardmarket.com{href}?sellerCountry=17&minCondition=3";
+                            string productUrl = $"https://www.cardmarket.com{href}?sellerCountry=17&minCondition=3";
+                            productUrls.Add(productUrl);
                             break;
                         }
                     }
+                }
+                catch (Exception ex)
+                {
+                    Logger.OutputError($"Error extracting product URL: {ex.Message}", run.RunId);
+                }
+            }
 
-                    if (string.IsNullOrEmpty(productUrl)) continue;
-
+            // Step 2: Visit each product page independently
+            for (int i = 0; i < productUrls.Count; i++)
+            {
+                string productUrl = productUrls[i];
+                try
+                {
                     var response = await page.GotoAsync(productUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
 
                     if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
                     {
-                        Logger.OutputWarning($"({type}) HTTP 429 Too Many Requests for product at index {i}. Waiting 30 sec and retrying...", run.RunId);
+                        Logger.OutputWarning($"HTTP 429 Too Many Requests at index {i}. Waiting 30 sec and retrying...", run.RunId);
                         await Task.Delay(TimeSpan.FromSeconds(30));
 
                         response = await page.GotoAsync(productUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
 
                         if (response?.Status == 429 || (await page.ContentAsync()).Contains("HTTP ERROR 429"))
                         {
-                            Logger.OutputError($"({type}) Still receiving 429 after retry. Skipping this product.", run.RunId);
+                            Logger.OutputError($"Still receiving 429 after retry. Skipping this product.", run.RunId);
                             continue;
                         }
                     }
+
                     var noResultsLocator = page.Locator("p.noResults");
                     if (await noResultsLocator.IsVisibleAsync())
                     {
-                        Logger.OutputDebug($"({type}) No sellers found for product at index {i}. Skipping...", run.RunId);
-                        await page.GoBackAsync(new PageGoBackOptions { WaitUntil = WaitUntilState.Load });
+                        Logger.OutputDebug($"No sellers found for product at index {i}. Skipping...", run.RunId);
                         continue;
                     }
 
                     await page.WaitForSelectorAsync("div.article-row");
                     var articleRows = await page.Locator("div.article-row").AllAsync();
 
-                    var newUsers = 0;
-
+                    int newUsers = 0;
                     foreach (var row in articleRows)
                     {
                         var priceLocator = row.Locator("div.price-container span.fw-bold");
-                        var priceCount = await priceLocator.CountAsync();
-
-                        if (priceCount > 0)
+                        if (await priceLocator.CountAsync() > 0)
                         {
                             var sellerAnchor = row.Locator("span.seller-name a");
                             if (await sellerAnchor.CountAsync() > 0)
                             {
                                 var username = await sellerAnchor.First.InnerTextAsync();
-                                var seller = new Sellers { Username = username };
-                                siteSellers.Add(seller);
+                                siteSellers.Add(new Sellers { Username = username });
                                 newUsers++;
                             }
                         }
                     }
 
-                    Logger.OutputOk($"({type}) Added: {newUsers} sellers to the list. Waiting 5 sec before next user...", run.RunId);
-
-                    await page.GoBackAsync(new PageGoBackOptions { WaitUntil = WaitUntilState.Load });
+                    Logger.OutputOk($"Added: {newUsers} sellers to the list...", run.RunId);
                 }
                 catch (Exception ex)
                 {
-                    Logger.OutputError($"({type}) Error processing product at index {i}: {ex.Message}", run.RunId);
+                    Logger.OutputError($"Error processing product at index {i}: {ex.Message}", run.RunId);
                 }
 
-                await Task.Delay(500);
+                //await Task.Delay(1000);
             }
 
+            // Step 3: Deduplicate
+            siteSellers = siteSellers
+                .GroupBy(u => u.Username)
+                .Select(g => g.First())
+                .ToList();
+
+            Logger.OutputOk($"Get {siteSellers.Count} sellers from site\n", run.RunId);
             return siteSellers;
         }
-
 
         static async Task<(int totalCount, float avgPrice)> GetTotalCountFromUserPage(IPage page, string url, string userName, Run run)
         {
@@ -271,7 +259,7 @@ namespace CardGrabber.Services.Playwright
 
             return itemStatsList;
         }
-        public async Task GetSellerInfoAsync(string userName, IBrowserContext context, Run run)
+        public async Task CollectSellerItems(string userName, IBrowserContext context, Run run)
         {
             var page = await context.NewPageAsync();
             try
@@ -292,7 +280,7 @@ namespace CardGrabber.Services.Playwright
                     Logger.OutputWarning($"HTTP 429 received. Waiting 60 seconds before retrying...", run.RunId);
                     await page.CloseAsync();
                     await Task.Delay(60000); // Wait 1 minute
-                    await GetSellerInfoAsync(userName, context, run); // Retry
+                    await CollectSellerItems(userName, context, run); // Retry
                     return;
                 }
 
@@ -528,7 +516,6 @@ namespace CardGrabber.Services.Playwright
 
             return cardInfoList;
         }
-    
     
     }
 }
