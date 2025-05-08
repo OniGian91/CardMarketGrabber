@@ -11,11 +11,11 @@ namespace CardGrabber.Services.Playwright
 {
     internal class PlaywrightManager
     {
-        public static string scraperUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+        private readonly AppSettings _config;
 
-        public PlaywrightManager()
+        public PlaywrightManager(AppSettings config)
         {
-            var config = ConfigurationLoader.Load();
+            _config =  config;
         }
         public async Task<List<Sellers>> GetSellersFromDB(IBrowserContext context,  Run run)
         {
@@ -402,7 +402,7 @@ namespace CardGrabber.Services.Playwright
                 Card card = cards[i];
 
                 Logger.OutputInfo($"[{(i + 1).ToString().PadLeft(2, '0')}/{cards.Count}] {card.CardName}", run.RunId);
-                List<CardsInfo> cardsInfos;
+                List<CardsInfo> cardsInfos = new List<CardsInfo>();
 
                 try
                 {
@@ -414,7 +414,7 @@ namespace CardGrabber.Services.Playwright
                     Logger.OutputError("LoadCardInfoFromUrl fails", run.RunId);
 
                 }
-                Logger.OutputOk("Completed", run.RunId);
+                Logger.OutputOk($"Completed get {cardsInfos.Count} sellers for this card \n", run.RunId);
             }
             await page.CloseAsync();
             return true;
@@ -433,20 +433,34 @@ namespace CardGrabber.Services.Playwright
 
                 if (loadMoreButton == null)
                 {
-                    break;
+                    break; 
                 }
 
                 try
                 {
                     await page.WaitForSelectorAsync("#loadMoreButton:visible", new PageWaitForSelectorOptions { Timeout = 5000 });
+
+                    loadMoreButton = await page.QuerySelectorAsync("#loadMoreButton");
+                    if (loadMoreButton == null)
+                    {
+                        break;
+                    }
+
                     await loadMoreButton.ClickAsync();
+                    await page.WaitForTimeoutAsync(1000); // Optional: gives time for content to load
                 }
                 catch (TimeoutException)
                 {
-                    Logger.OutputError("Error on loadMoreButton", run.RunId);
-                    break;
+                    Logger.OutputInfo("Timeout waiting for #loadMoreButton to become visible", run.RunId);
+                    break; 
+                }
+                catch (PlaywrightException ex)
+                {
+                    Logger.OutputError($"Click failed on #loadMoreButton: {ex.Message}", run.RunId);
+                    break; 
                 }
             }
+
 
             var articleRows = await page.QuerySelectorAllAsync(".article-row");
 

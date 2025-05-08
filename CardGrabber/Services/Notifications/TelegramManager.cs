@@ -7,7 +7,6 @@ namespace CardGrabber.Services
         private readonly string _botToken;
         private readonly string _chatId;
         private readonly HttpClient _httpClient;
-
         public TelegramManager(AppSettings config)
         {
             if (config?.TelegramBot == null)

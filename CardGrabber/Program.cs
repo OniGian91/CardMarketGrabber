@@ -1,6 +1,5 @@
 ﻿using Microsoft.Playwright;
 using CardGrabber.Models;
-using System.Runtime.InteropServices;
 using CardGrabber.Configuration;
 using CardGrabber.Services.Internal;
 using CardGrabber.Services;
@@ -11,36 +10,8 @@ namespace CardMarketScraper
 
     class Program
     {
-        private static ConsoleEventDelegate _handler;
-        private static bool isShuttingDown = false;
-
-        private delegate bool ConsoleEventDelegate(CtrlType sig);
-
-        [DllImport("Kernel32")]
-        private static extern bool SetConsoleCtrlHandler(ConsoleEventDelegate handler, bool add);
-
-        private enum CtrlType
-        {
-            CTRL_C_EVENT = 0,
-            CTRL_CLOSE_EVENT = 2,
-            CTRL_SHUTDOWN_EVENT = 6
-        }
-
-        private static bool Handler(CtrlType signal)
-        {
-            if (!isShuttingDown)
-            {
-                isShuttingDown = true;
-                Logger.OutputWarning("Shutdown signal received, performing final cleanup...", 0);
-                RunManager runManager = new RunManager();
-                runManager.CompleteRun(runID, "Stopped").GetAwaiter().GetResult();
-            }
-
-            return true;
-        }
 
         #region Configurations
-        public static string scraperUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
         public static int runID = 0;
         #endregion
 
@@ -71,35 +42,8 @@ namespace CardMarketScraper
 
             var config = ConfigurationLoader.Load();
             TelegramManager telegramManager = new TelegramManager(config);
-            RunManager runManager = new RunManager();
-            PlaywrightManager playwrightManager = new PlaywrightManager();
-
-            _handler = new ConsoleEventDelegate(Handler);
-            SetConsoleCtrlHandler(_handler, true);
-
-            AppDomain.CurrentDomain.ProcessExit += async (s, e) =>
-            {
-                if (!isShuttingDown)
-                {
-                    isShuttingDown = true;
-                    Logger.OutputWarning("Process is exiting... performing cleanup.", 0);
-                    RunManager runManager = new RunManager();
-                    await runManager.CompleteRun(runID, "Stopped");
-                }
-            };
-
-            Console.CancelKeyPress += async (sender, e) =>
-            {
-                e.Cancel = true;
-                if (!isShuttingDown)
-                {
-                    isShuttingDown = true;
-                    Logger.OutputWarning("Ctrl+C pressed, cleaning up...", 0);
-                    RunManager runManager = new RunManager();
-                    await runManager.CompleteRun(runID, "Stopped");
-                    Environment.Exit(0);
-                }
-            };
+            RunManager runManager = new RunManager(config);
+            PlaywrightManager playwrightManager = new PlaywrightManager(config);
 
             int intervalInMinutes = 1;
 
@@ -133,7 +77,7 @@ namespace CardMarketScraper
                     var context = await browser.NewContextAsync(new BrowserNewContextOptions
                     {
                         ViewportSize = new ViewportSize { Width = 1280, Height = 800 },
-                        UserAgent = scraperUserAgent
+                        UserAgent = config.PlaywrightConfig.scraperUserAgent
                     });
 
                     await context.RouteAsync("**/*", async route =>

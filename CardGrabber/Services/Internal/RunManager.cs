@@ -7,11 +7,10 @@ namespace CardGrabber.Services.Internal
 {
     internal class RunManager
     {
-        private readonly string _connectionString;
-        public RunManager()
+        private readonly AppSettings _config;
+        public RunManager(AppSettings config)
         {
-            var config = ConfigurationLoader.Load();
-            _connectionString = config.Database.ConnectionString;
+            _config = config;
         }
 
         public async Task<Run> StartRun()
@@ -30,7 +29,7 @@ WHERE
     [RunId] = SCOPE_IDENTITY()
 ";
             Run run = new Run();
-            using (var connection = new SqlConnection(_connectionString))
+            using (var connection = new SqlConnection(_config.Database.ConnectionString))
             {
                 await connection.OpenAsync();
                 run = await connection.QuerySingleAsync<Run>(sqlQuery, new { RunIdentifier = runId, DateTime.Now, Status = "In Progress", type = "Test" });
@@ -43,7 +42,7 @@ WHERE
         {
             string sqlQuery = @"UPDATE CardGrabber.dbo.Runs SET [End] = @Now, [Status] = @status WHERE RunId = @runId";
 
-            using (var connection = new SqlConnection(_connectionString))
+            using (var connection = new SqlConnection(_config.Database.ConnectionString))
             {
                 await connection.OpenAsync();
                 await connection.ExecuteAsync(sqlQuery, new { runId, DateTime.Now, status });

@@ -11,12 +11,15 @@ public static class ConfigurationLoader
             .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
             .Build();
 
-        var settings = new AppSettings
+        var appSettings = new AppSettings
         {
             TelegramBot = configuration.GetSection("TelegramBot").Get<TelegramBotSettings>(),
             AppMode = configuration.GetSection("AppMode").Get<AppModeSettings>(),
             Database = configuration.GetSection("Database").Get<DatabaseSettings>(),
-            AppStrategy = configuration.GetSection("AppStrategy").Get<AppStrategy>()
-        }; return settings;
+            AppStrategy = configuration.GetSection("AppStrategy").Get<AppStrategy>(),
+            PlaywrightConfig = configuration.GetSection("PlaywrightConfig").Get<PlaywrightConfig>()
+        }; 
+        
+        return appSettings;
     }
 }

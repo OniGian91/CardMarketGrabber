@@ -6,7 +6,7 @@ public class AppSettings
     public AppModeSettings AppMode { get; set; }
     public DatabaseSettings Database { get; set; }
     public AppStrategy AppStrategy { get; set; }
-
+    public PlaywrightConfig PlaywrightConfig { get; set; }
 }
 
 public class TelegramBotSettings
@@ -20,6 +20,10 @@ public class AppModeSettings
     public bool DebugMode { get; set; }
 }
 
+public class PlaywrightConfig
+{
+    public string scraperUserAgent { get; set; }
+}
 public class AppStrategy
 {
     public bool collectCardsInfo { get; set; }
