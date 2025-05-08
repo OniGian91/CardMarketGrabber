@@ -5,6 +5,8 @@ public class AppSettings
     public TelegramBotSettings TelegramBot { get; set; }
     public AppModeSettings AppMode { get; set; }
     public DatabaseSettings Database { get; set; }
+    public AppStrategy AppStrategy { get; set; }
+
 }
 
 public class TelegramBotSettings
@@ -16,8 +18,13 @@ public class TelegramBotSettings
 public class AppModeSettings
 {
     public bool DebugMode { get; set; }
-    public bool OnlyDBUsers { get; set; }
-    public bool Only1User { get; set; }
+}
+
+public class AppStrategy
+{
+    public bool collectCardsInfo { get; set; }
+    public bool collectSellers { get; set; }
+    public bool collectSellersItems { get; set; }
 }
 
 public class DatabaseSettings

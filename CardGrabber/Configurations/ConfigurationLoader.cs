@@ -15,7 +15,8 @@ public static class ConfigurationLoader
         {
             TelegramBot = configuration.GetSection("TelegramBot").Get<TelegramBotSettings>(),
             AppMode = configuration.GetSection("AppMode").Get<AppModeSettings>(),
-            Database = configuration.GetSection("Database").Get<DatabaseSettings>()
+            Database = configuration.GetSection("Database").Get<DatabaseSettings>(),
+            AppStrategy = configuration.GetSection("AppStrategy").Get<AppStrategy>()
         }; return settings;
     }
 }

@@ -1,14 +1,10 @@
 ﻿using Microsoft.Playwright;
-using CardGrabber.DAL;
 using CardGrabber.Models;
 using System.Runtime.InteropServices;
-using System.Text.Json;
 using CardGrabber.Configuration;
 using CardGrabber.Services.Internal;
 using CardGrabber.Services;
 using CardGrabber.Services.Playwright;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace CardMarketScraper
 {
@@ -51,8 +47,32 @@ namespace CardMarketScraper
 
         static async Task Main(string[] args)
         {
+
+            Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
+            Logger.OutputCustom("│        STARTUP CARDMARKET GRABBER                  │", ConsoleColor.Magenta, runID);
+            Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
+            Logger.OutputCustom(@"
+        ┌────────────────────────────┐
+        │                            │
+        │        ▓▓▓▓▓▓▓▓▓▓▓         │
+        │      ▓▓          ▓▓        │
+        │    ▓▓    ●    ●    ▓▓      │
+        │   ▓▓     ░░░░░░     ▓▓     │
+        │    ▓▓     ▓▓▓▓     ▓▓      │
+        │      ▓▓          ▓▓        │
+        │        ▓▓▓▓▓▓▓▓▓▓          │
+        │                            │
+        │        P O K É M O N       │
+        │                            │
+        └────────────────────────────┘
+", ConsoleColor.DarkBlue, 0);
+
+            Logger.OutputInfo("CardMarketGrabber is starting...", 0);
+
             var config = ConfigurationLoader.Load();
             TelegramManager telegramManager = new TelegramManager(config);
+            RunManager runManager = new RunManager();
+            PlaywrightManager playwrightManager = new PlaywrightManager();
 
             _handler = new ConsoleEventDelegate(Handler);
             SetConsoleCtrlHandler(_handler, true);
@@ -64,7 +84,7 @@ namespace CardMarketScraper
                     isShuttingDown = true;
                     Logger.OutputWarning("Process is exiting... performing cleanup.", 0);
                     RunManager runManager = new RunManager();
-                    await runManager.CompleteRun(runID,"Stopped");
+                    await runManager.CompleteRun(runID, "Stopped");
                 }
             };
 
@@ -81,125 +101,126 @@ namespace CardMarketScraper
                 }
             };
 
-
             int intervalInMinutes = 1;
-            int intervalInMilliseconds = intervalInMinutes * 60 * 1000;
 
             while (true)
             {
-                // STARTING CREATING A NEW RUN
-                PlaywrightManager playwrightManager = new PlaywrightManager();
-
-                Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("│        STARTUP CARDMARKET GRABBER                  │", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom(@"
-        ┌────────────────────────────┐
-        │                            │
-        │        ▓▓▓▓▓▓▓▓▓▓▓         │
-        │      ▓▓          ▓▓        │
-        │    ▓▓    ●    ●    ▓▓      │
-        │   ▓▓     ░░░░░░     ▓▓     │
-        │    ▓▓     ▓▓▓▓     ▓▓      │
-        │      ▓▓          ▓▓        │
-        │        ▓▓▓▓▓▓▓▓▓▓          │
-        │                            │
-        │        P O K É M O N       │
-        │                            │
-        └────────────────────────────┘
-", ConsoleColor.DarkBlue, 0);
-
-                Logger.OutputInfo("CardMarketGrabber is starting...", 0);
-                RunManager runManager = new RunManager();
-
-                Run run = new Run();
                 try
                 {
-                    run = await runManager.StartRun();
-                    runID = run.RunId;
-                }
-                catch (Exception ex)
-                {
-                    Logger.OutputError($"CardMarketGrabber error on start! Exception: {ex.Message}\n", 0);
-                    return;
-                }                
+                    Run run = new Run();
+                    try
+                    {
+                        run = await runManager.StartRun();
+                        runID = run.RunId;
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.OutputError($"CardMarketGrabber error on start! Exception: {ex.Message}\n", 0);
+                        return;
+                    }
 
-                Logger.OutputOk($"CardMarketGrabber started at {run.Start}. RunId: {run.RunId} RunIdentifier: {run.RunIdentifier}", runID);
-                await telegramManager.SendNotification($"CardMarketGrabber started at {run.Start}. RunId: {run.RunId} RunIdentifier: {run.RunIdentifier}");
+                    Logger.OutputOk($"CardMarketGrabber started at {run.Start}. RunId: {run.RunId} RunIdentifier: {run.RunIdentifier}", runID);
+                    await telegramManager.SendNotification($"CardMarketGrabber started at {run.Start}. RunId: {run.RunId} RunIdentifier: {run.RunIdentifier}");
 
-                // SET UP PLAYWRIGHT
-                using var playwright = await Playwright.CreateAsync();
-                await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-                {
-                    Headless = !config.AppMode.DebugMode,
-                    SlowMo = 100
-                });
+                    // SET UP PLAYWRIGHT
+                    using var playwright = await Playwright.CreateAsync();
+                    await using var browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
+                    {
+                        Headless = !config.AppMode.DebugMode,
+                        SlowMo = 100
+                    });
 
-                var context = await browser.NewContextAsync(new BrowserNewContextOptions
-                {
-                    ViewportSize = new ViewportSize { Width = 1280, Height = 800 },
-                    UserAgent = scraperUserAgent
-                });
+                    var context = await browser.NewContextAsync(new BrowserNewContextOptions
+                    {
+                        ViewportSize = new ViewportSize { Width = 1280, Height = 800 },
+                        UserAgent = scraperUserAgent
+                    });
 
-                await context.RouteAsync("**/*", async route =>
-                {
-                    var req = route.Request;
-                    if (req.ResourceType == "stylesheet" || req.ResourceType == "image" || req.ResourceType == "font")
-                        await route.AbortAsync();
+                    await context.RouteAsync("**/*", async route =>
+                    {
+                        var req = route.Request;
+                        if (req.ResourceType == "stylesheet" || req.ResourceType == "image" || req.ResourceType == "font")
+                            await route.AbortAsync();
+                        else
+                            await route.ContinueAsync();
+                    });
+
+                    if (config.AppStrategy.collectCardsInfo)
+                    {
+                        Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
+                        Logger.OutputCustom("│              CARD LOADING START                    │", ConsoleColor.Magenta, runID);
+                        Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
+
+                        await playwrightManager.GetCardsInfo(context, run);
+                    }
                     else
-                        await route.ContinueAsync();
-                });
+                    {
+                        Logger.OutputCustom("AppStrategy collectCardsInfo is false skipping card loading...\n", ConsoleColor.Yellow, runID);
+                    }
 
+                    List<Sellers> sellers = new List<Sellers>();
 
-                // GET CARDS STATS
-                Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("│              CARD LOADING START                    │", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
+                    if (config.AppStrategy.collectSellersItems)
+                    {
+                        Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
+                        Logger.OutputCustom("│              SELLER LOADING START                  │", ConsoleColor.Magenta, runID);
+                        Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
+                        List<Sellers> siteSellers = new List<Sellers>();
 
-                await playwrightManager.GetCardsInfo(context, run);
+                        if (config.AppStrategy.collectSellers)
+                        {
+                            siteSellers = await playwrightManager.GetSellersFromSite(context, run);
+                        }
 
-                // GET USER ON DB AN SITE ONE
-                Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("│              SELLER LOADING START                  │", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
+                        List<Sellers> dbSellers = await playwrightManager.GetSellersFromDB(context, run);
 
-                List<Sellers> siteSellers = new List<Sellers>();
-                if (!config.AppMode.OnlyDBUsers)
-                {
-                    siteSellers = await playwrightManager.GetSellersFromSite(context, run);
+                        sellers = dbSellers
+                             .Concat(siteSellers)
+                             .DistinctBy(s => s.Username)
+                             .ToList();
+                    }
+                    else
+                    {
+                        Logger.OutputCustom("AppStrategy collectSellers is false skipping sellers loading...\n", ConsoleColor.Yellow, runID);
+                    }
+
+                    if (config.AppStrategy.collectSellersItems && sellers.Any())
+                    {
+                        // SELLER INFO COLLECTING
+                        Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
+                        Logger.OutputCustom("│         SELLER INFO COLLECTING START               │", ConsoleColor.Magenta, runID);
+                        Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
+
+                        for (int i = 0; i < sellers.Count; i++)
+                        {
+                            var seller = sellers[i];
+                            Logger.OutputInfo($"[{(i + 1).ToString().PadLeft(2, '0')}/{sellers.Count}] {seller.Username}", runID);
+                            await playwrightManager.GetSellerInfoAsync(seller.Username, context, run);
+                            List<SellerItemsInfo> itemStats = await playwrightManager.getSellerItemsInfo(seller, context, run);
+                            Logger.OutputInfo("Waiting 5 seconds before next seller...\n", runID);
+                            await Task.Delay(5000);
+
+                        }
+                    }
+                    else
+                    {
+                        Logger.OutputCustom("AppStrategy collectSellersItems is false or there are no sellers skipping seller items loading...\n", ConsoleColor.Yellow, runID);
+                    }
+
+                    await telegramManager.SendNotification($"RunCompleted waiting for {intervalInMinutes} minute before next run...");
+                    await runManager.CompleteRun(runID, "Completed");
+
+                    Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
+                    Logger.OutputCustom("│      CARDMARKET GRABBER HAVE COMPLETED THE RUN!    │", ConsoleColor.Magenta, runID);
+                    Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
+                    Logger.OutputOk($"RunCompleted waiting for {intervalInMinutes} minute before next run...", runID);
+
+                    await Task.Delay(intervalInMinutes * 60 * 1000);
                 }
-                List<Sellers> dbSellers = await playwrightManager.GetSellersFromDB(context, run);
-
-                List<Sellers> sellers = dbSellers
-                    .Concat(siteSellers)
-                    .DistinctBy(s => s.Username)
-                    .ToList();
-
-                // SELLER INFO COLLECTING
-                Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("│         SELLER INFO COLLECTING START               │", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
-
-                for (int i = 0; i < sellers.Count; i++)
+                catch (Exception)
                 {
-                    var seller = sellers[i];
-                    Logger.OutputInfo($"[{(i + 1).ToString().PadLeft(2, '0')}/{sellers.Count}] {seller.Username}", runID);
-                    await playwrightManager.GetSellerInfoAsync(seller.Username, context, run);
-                    List<SellerItemsInfo> itemStats = await playwrightManager.getSellerItemsInfo(seller, context, run);
-                    Logger.OutputInfo("Waiting 5 seconds before next seller...\n", runID);
-                    await Task.Delay(5000);
-
+                    await runManager.CompleteRun(runID, $"Error");
                 }
-                
-                await telegramManager.SendNotification($"RunCompleted waiting for {intervalInMinutes} minute before next run...");
-                await runManager.CompleteRun(runID, "Completed");
-
-                Logger.OutputCustom("┌────────────────────────────────────────────────────┐", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("│      CARDMARKET GRABBER HAVE COMPLETED THE RUN!    │", ConsoleColor.Magenta, runID);
-                Logger.OutputCustom("└────────────────────────────────────────────────────┘", ConsoleColor.Magenta, runID);
-                Logger.OutputOk($"RunCompleted waiting for {intervalInMinutes} minute before next run...", runID);
-
-                await Task.Delay(intervalInMilliseconds);
             }
         }
     }
