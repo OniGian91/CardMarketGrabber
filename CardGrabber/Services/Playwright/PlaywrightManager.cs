@@ -1,8 +1,9 @@
-﻿using CardGrabber.Configuration;
+﻿using Azure;
+using CardGrabber.Configuration;
 using CardGrabber.DAL;
 using CardGrabber.Models;
 using Microsoft.Playwright;
-
+using System.Text.Json;
 
 
 
@@ -12,33 +13,51 @@ namespace CardGrabber.Services.Playwright
     {
         public static string scraperUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
-        private readonly bool _debugMode;
-        private readonly bool _onlyDBUsers;
         public PlaywrightManager()
         {
             var config = ConfigurationLoader.Load();
-            _debugMode = config.AppMode.DebugMode;
-            _onlyDBUsers = config.AppMode.OnlyDBUsers;
+        }
+        public async Task<List<Sellers>> GetSellersFromDB(IBrowserContext context,  Run run)
+        {
+            var dataAccess = new dal();
+
+            Logger.OutputInfo($"Starting to get sellers from DataBase", run.RunId);
+            List<Sellers> dbSellers = await dataAccess.GetSellers();
+            Logger.OutputOk($"Get {dbSellers.Count()} sellers from DataBase\n", run.RunId);
+            return dbSellers;
         }
 
+        public async Task<List<Sellers>> GetSellersFromSite(IBrowserContext context,Run run)
+        {
+            List<Sellers> siteSellers;
+            siteSellers = new List<Sellers>();
+
+            Logger.OutputInfo($"Starting to get sellers from site", run.RunId);
+            string listingUrlDoubleRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=199&sortBy=price_asc&perSite=20&site=6";
+            string listingUrlIllustrationRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=280&sortBy=price_asc&perSite=20&site=6";
+            string listingUrlUltraRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=54&sortBy=price_asc&perSite=20&site=6";
+            string listingUrlHoloRare = "https://www.cardmarket.com/it/Pokemon/Products/Singles?idCategory=51&idExpansion=0&idRarity=49&perSite=20"; // POPOLARI NON ORDINATE PER PREZZO!
+            siteSellers.AddRange(await getSellersFromUrl(context, listingUrlDoubleRare, "DoubleRare", run));
+            siteSellers.AddRange(await getSellersFromUrl(context, listingUrlIllustrationRare, "IllustrationRare", run));
+            siteSellers.AddRange(await getSellersFromUrl(context, listingUrlUltraRare, "UltraRare", run));
+            siteSellers.AddRange(await getSellersFromUrl(context, listingUrlHoloRare, "HoloRare", run));
+            siteSellers = siteSellers
+                .GroupBy(u => u.Username)
+                .Select(g => g.First())
+                .ToList();
+            Logger.OutputOk($"Get {siteSellers.Count()} sellers from site\n", run.RunId);
+
+            return siteSellers;
+        }
 
 
         public async Task<List<Sellers>> getSellersFromUrl(IBrowserContext context, string listingUrl, string type, Run run)
         {
 
-
-            await context.RouteAsync("**/*", async route =>
-            {
-                var req = route.Request;
-                if (req.ResourceType == "stylesheet" || req.ResourceType == "image" || req.ResourceType == "font")
-                    await route.AbortAsync();
-                else
-                    await route.ContinueAsync();
-            });
             var page = await context.NewPageAsync();
             page.SetDefaultTimeout(5000);
 
-            List<Sellers> usersList = new List<Sellers>();
+            List<Sellers> siteSellers = new List<Sellers>();
 
             await page.GotoAsync(listingUrl);
 
@@ -106,7 +125,7 @@ namespace CardGrabber.Services.Playwright
                             {
                                 var username = await sellerAnchor.First.InnerTextAsync();
                                 var seller = new Sellers { Username = username };
-                                usersList.Add(seller);
+                                siteSellers.Add(seller);
                                 newUsers++;
                             }
                         }
@@ -124,8 +143,7 @@ namespace CardGrabber.Services.Playwright
                 await Task.Delay(500);
             }
 
-
-            return usersList;
+            return siteSellers;
         }
 
 
@@ -232,7 +250,7 @@ namespace CardGrabber.Services.Playwright
 
             // Optionally store the data in the database
             var dataAccess = new dal();
-            dataAccess.StoreSellerItemInfo(
+            await dataAccess.StoreSellerItemInfo(
                 seller.Username,
                 itemStatsList.First(i => i.ItemType == "DoubleRare").Count, itemStatsList.First(i => i.ItemType == "DoubleRare").AveragePrice,
                 itemStatsList.First(i => i.ItemType == "UltraRare").Count, itemStatsList.First(i => i.ItemType == "UltraRare").AveragePrice,
@@ -253,7 +271,7 @@ namespace CardGrabber.Services.Playwright
 
             return itemStatsList;
         }
-        public async Task GetSellerInfoAsync( string userName, IBrowserContext context, Run run)
+        public async Task GetSellerInfoAsync(string userName, IBrowserContext context, Run run)
         {
             var page = await context.NewPageAsync();
             try
@@ -373,14 +391,40 @@ namespace CardGrabber.Services.Playwright
             }
         }
 
-        public async Task<List<CardsInfo>> LoadMoreAndGetCardInfoAsync(Card card, IBrowserContext context)
+        public async Task<bool> GetCardsInfo(IBrowserContext context, Run run)
         {
+            var dataAccess = new dal();
+            List<Card> cards = await dataAccess.GetAllCardsAsync();
             var page = await context.NewPageAsync();
 
-            // Navigate to the card URL
+            for (int i = 0; i < cards.Count; i++)
+            {
+                Card card = cards[i];
+
+                Logger.OutputInfo($"[{(i + 1).ToString().PadLeft(2, '0')}/{cards.Count}] {card.CardName}", run.RunId);
+                List<CardsInfo> cardsInfos;
+
+                try
+                {
+                    cardsInfos = await LoadCardInfoFromUrl(card, page, run);
+                    await dataAccess.InsertCardInfo(run.RunId, card.CardID, JsonSerializer.Serialize(cardsInfos).ToString());
+                }
+                catch
+                {
+                    Logger.OutputError("LoadCardInfoFromUrl fails", run.RunId);
+
+                }
+                Logger.OutputOk("Completed", run.RunId);
+            }
+            await page.CloseAsync();
+            return true;
+        }
+
+        public async Task<List<CardsInfo>> LoadCardInfoFromUrl(Card card, IPage page, Run run)
+        {
+
             await page.GotoAsync(card.CardUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
 
-            // Initialize a list to store CardInfo objects
             var cardInfoList = new List<CardsInfo>();
 
             for (int i = 0; i < 10; i++)
@@ -396,14 +440,13 @@ namespace CardGrabber.Services.Playwright
                 {
                     await page.WaitForSelectorAsync("#loadMoreButton:visible", new PageWaitForSelectorOptions { Timeout = 5000 });
                     await loadMoreButton.ClickAsync();
-                    await page.WaitForTimeoutAsync(1000);
                 }
                 catch (TimeoutException)
                 {
+                    Logger.OutputError("Error on loadMoreButton", run.RunId);
                     break;
                 }
             }
-
 
             var articleRows = await page.QuerySelectorAllAsync(".article-row");
 
@@ -438,10 +481,7 @@ namespace CardGrabber.Services.Playwright
                 if (!string.IsNullOrEmpty(cardPriceText))
                 {
                     cardPriceText = cardPriceText.Replace("€", "").Trim();
-
-                    // Remove thousands separator and replace decimal comma with dot
                     cardPriceText = cardPriceText.Replace(".", "").Replace(",", ".");
-
                     decimal.TryParse(cardPriceText, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out cardPrice);
                 }
 
@@ -472,11 +512,9 @@ namespace CardGrabber.Services.Playwright
                 cardInfoList.Add(cardInfo);
             }
 
-            // Close the page after scraping
-            await page.CloseAsync();
-
-            // Return the list of card info
             return cardInfoList;
         }
+    
+    
     }
 }

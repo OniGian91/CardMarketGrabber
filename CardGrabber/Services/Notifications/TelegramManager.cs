@@ -32,6 +32,10 @@ namespace CardGrabber.Services
                 var error = await response.Content.ReadAsStringAsync();
                 throw new Exception($"Failed to send Telegram message: {response.StatusCode} - {error}");
             }
+            else
+            {
+                Logger.OutputOk($"Sent a notification on Telegram\n", 0);
+            }
         }
     }
 }

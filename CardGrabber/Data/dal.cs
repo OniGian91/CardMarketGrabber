@@ -12,12 +12,7 @@ namespace CardGrabber.DAL
         {
         }
 
-
-       
-
-
-
-        public async Task<IEnumerable<Sellers>> GetSellers()
+        public async Task<List<Sellers>> GetSellers()
         {
             string query = "SELECT DISTINCT UserName,Type,Info,CardMarketRank,Country FROM [CardGrabber].[dbo].[Sellers]";
 
@@ -25,7 +20,7 @@ namespace CardGrabber.DAL
             {
                 await connection.OpenAsync();
                 var result = await connection.QueryAsync<Sellers>(query);
-                return result;
+                return result.ToList();
             }
         }
 
@@ -195,7 +190,7 @@ VALUES (
 
         public async Task<List<Card>> GetAllCardsAsync()
         {
-            const string query = "SELECT CardID, CardName, CardUrl FROM dbo.Cards";
+            const string query = "SELECT CardID, CardName, CardUrl FROM dbo.Cards WHERE Grab = 1";
 
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();
