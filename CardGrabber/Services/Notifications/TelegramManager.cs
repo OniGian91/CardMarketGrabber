@@ -8,9 +8,11 @@ namespace CardGrabber.Services
         private readonly string _chatId;
         private readonly HttpClient _httpClient;
 
-        public TelegramManager()
+        public TelegramManager(AppSettings config)
         {
-            var config = ConfigurationLoader.Load();
+            if (config?.TelegramBot == null)
+                throw new ArgumentException("Invalid Telegram configuration.");
+
             _botToken = config.TelegramBot.BotToken;
             _chatId = config.TelegramBot.ChatId;
             _httpClient = new HttpClient();
@@ -28,7 +30,6 @@ namespace CardGrabber.Services
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
-
                 throw new Exception($"Failed to send Telegram message: {response.StatusCode} - {error}");
             }
         }
