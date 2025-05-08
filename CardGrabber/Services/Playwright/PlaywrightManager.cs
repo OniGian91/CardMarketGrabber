@@ -259,6 +259,7 @@ namespace CardGrabber.Services.Playwright
 
             return itemStatsList;
         }
+       
         public async Task CollectSellerItems(string userName, IBrowserContext context, Run run)
         {
             var page = await context.NewPageAsync();
@@ -390,28 +391,35 @@ namespace CardGrabber.Services.Playwright
                 Card card = cards[i];
 
                 Logger.OutputInfo($"[{(i + 1).ToString().PadLeft(2, '0')}/{cards.Count}] {card.CardName}", run.RunId);
-                List<CardsInfo> cardsInfos = new List<CardsInfo>();
+                List<CardsInfo> cardInfoList = new List<CardsInfo>();
 
                 try
                 {
-                    cardsInfos = await LoadCardInfoFromUrl(card, page, run);
-                    await dataAccess.InsertCardInfo(run.RunId, card.CardID, JsonSerializer.Serialize(cardsInfos).ToString());
+
+                    var cardsInfos = await LoadCardInfoFromUrl(card, card.CardUrlEU, "EU", page, run);
+                    cardInfoList.AddRange(cardsInfos);
+                    if (card.CardUrlJP is not null)
+                    {
+                        cardsInfos = await LoadCardInfoFromUrl(card, card.CardUrlJP, "JP", page, run);
+                        cardInfoList.AddRange(cardsInfos);
+                    }
+
+                    await dataAccess.InsertCardInfo(run.RunId, card.CardID, JsonSerializer.Serialize(cardInfoList).ToString());
                 }
                 catch
                 {
                     Logger.OutputError("LoadCardInfoFromUrl fails", run.RunId);
 
                 }
-                Logger.OutputOk($"Completed get {cardsInfos.Count} sellers for this card \n", run.RunId);
+                Logger.OutputOk($"Completed get {cardInfoList.Count} sellers for this card \n", run.RunId);
             }
             await page.CloseAsync();
             return true;
         }
 
-        public async Task<List<CardsInfo>> LoadCardInfoFromUrl(Card card, IPage page, Run run)
+        public async Task<List<CardsInfo>> LoadCardInfoFromUrl(Card card, string cardUrl, string version, IPage page, Run run)
         {
-
-            await page.GotoAsync(card.CardUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
+            await page.GotoAsync(cardUrl, new PageGotoOptions { WaitUntil = WaitUntilState.Load });
 
             var cardInfoList = new List<CardsInfo>();
 
@@ -501,6 +509,7 @@ namespace CardGrabber.Services.Playwright
 
                 var cardInfo = new CardsInfo(
                     card.CardID,
+                    version,
                     sellerUsername,
                     sellerCountry,
                     cardCondition,

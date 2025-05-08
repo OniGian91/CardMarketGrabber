@@ -190,7 +190,7 @@ VALUES (
 
         public async Task<List<Card>> GetAllCardsAsync()
         {
-            const string query = "SELECT CardID, CardName, CardUrl FROM dbo.Cards WHERE Grab = 1";
+            const string query = "SELECT CardID, CardName, CardUrlEU, CardUrlJP FROM dbo.Cards WHERE Grab = 1";
 
             using var connection = new SqlConnection(_connectionString);
             await connection.OpenAsync();

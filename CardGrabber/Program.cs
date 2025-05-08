@@ -115,7 +115,7 @@ namespace CardMarketScraper
 
                         if (config.AppStrategy.collectSellers)
                         {
-                            siteSellers = await playwrightManager.GetSellersFromSite(context, run);
+                            siteSellers = await playwrightManager.CollectSellersFromSite(context, run);
                         }
                         if (config.AppStrategy.collectSellersItems)
                         {
@@ -165,9 +165,12 @@ namespace CardMarketScraper
 
                     await Task.Delay(intervalInMinutes * 60 * 1000);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
                     await runManager.CompleteRun(runID, $"Error");
+                    Logger.OutputError($"{ex.Message}", runID);
+
+                    await Task.Delay(intervalInMinutes * 60 * 1000);
                 }
             }
         }

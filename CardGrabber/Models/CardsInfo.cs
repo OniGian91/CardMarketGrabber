@@ -7,6 +7,9 @@ namespace CardGrabber.Models
         [JsonIgnore]
         public int CardID { get; set; }
 
+        [JsonPropertyName("V")]
+        public string CardVersion { get; set; }
+
         [JsonPropertyName("SU")]
         public string SellerUsername { get; set; }
 
@@ -27,9 +30,10 @@ namespace CardGrabber.Models
         [JsonPropertyName("CQ")]
         public int CardQuantity { get; set; }
 
-        public CardsInfo(int cardID, string sellerUsername, string sellerCountry, string cardCondition, string cardLanguage, string cardComment, decimal cardPrice, int cardQuantity)
+        public CardsInfo(int cardID, string cardVersion, string sellerUsername, string sellerCountry, string cardCondition, string cardLanguage, string cardComment, decimal cardPrice, int cardQuantity)
         {
             CardID = cardID;
+            CardVersion = cardVersion;
             SellerUsername = sellerUsername;
             SellerCountry = sellerCountry;
             CardCondition = cardCondition;
