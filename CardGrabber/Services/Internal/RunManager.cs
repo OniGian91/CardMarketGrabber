@@ -2,6 +2,7 @@
 using CardGrabber.Models;
 using Dapper;
 using Microsoft.Data.SqlClient;
+using System.Text.Json;
 
 namespace CardGrabber.Services.Internal
 {
@@ -32,8 +33,7 @@ WHERE
             using (var connection = new SqlConnection(_config.Database.ConnectionString))
             {
                 await connection.OpenAsync();
-                run = await connection.QuerySingleAsync<Run>(sqlQuery, new { RunIdentifier = runId, DateTime.Now, Status = "In Progress", type = "Test" });
-                
+                run = await connection.QuerySingleAsync<Run>(sqlQuery, new { RunIdentifier = runId, DateTime.Now, Status = "In Progress", type = JsonSerializer.Serialize(_config.AppStrategy).ToString() });
             }
             return run;
         }
@@ -48,6 +48,5 @@ WHERE
                 await connection.ExecuteAsync(sqlQuery, new { runId, DateTime.Now, status });
             }
         }
-
     }
 }
